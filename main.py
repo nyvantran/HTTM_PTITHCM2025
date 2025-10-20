@@ -5,6 +5,7 @@ from views.LoginView import LoginView
 from views.register_view import RegisterView
 from views.DashboardView import DashboardView
 from utils.database import UserDatabase
+from db.schema import create_tables
 
 
 class MainWindow(QMainWindow):
@@ -31,16 +32,17 @@ class MainWindow(QMainWindow):
 
         # Hiển thị màn hình đăng nhập đầu tiên
         self.show_login()
+        create_tables()
 
     def init_views(self):
         """Khởi tạo tất cả các view"""
         # Login View
-        self.login_view = LoginView(self.db)
+        self.login_view = LoginView()
         self.login_view.login_success.connect(self.show_dashboard)
         self.login_view.register_clicked.connect(self.show_register)
 
         # Register View
-        self.register_view = RegisterView(self.db)
+        self.register_view = RegisterView()
         self.register_view.register_success.connect(self.show_login)
         self.register_view.back_to_login.connect(self.show_login)
 
