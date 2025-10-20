@@ -5,6 +5,9 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QDateTime, QSize
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from views.Dialogs import DrowsinessAlertDialog, RestAlertDialog
+from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+from PyQt5.QtCore import QUrl
+
 import os
 import traceback
 
@@ -392,8 +395,7 @@ class DashboardView(QWidget):
     def select_model_path(self):
         """Chọn file model YOLO"""
         default_paths = [
-            r"D:\Project\Các hệ thống thông minh\test1\core\train_rs\weights\best.pt",
-            r"weights\best.pt",
+            r"core\best.pt",
             r"best.pt",
             r"models\best.pt"
         ]
@@ -545,7 +547,6 @@ class DashboardView(QWidget):
         drive_time = self.drive_time_label.text().replace("⏱️ ", "")
 
         self.current_alert_timestamp = current_time.toString(Qt.ISODate)
-
         if result == DrowsinessAlertDialog.Accepted:
             self.add_log(current_time.toString("HH:mm:ss"), drive_time, "✅ Buồn ngủ")
 
@@ -715,3 +716,5 @@ class DashboardView(QWidget):
     def set_database(self, db):
         """Set database"""
         self.db = db
+
+
