@@ -190,7 +190,7 @@ class LoginView(QWidget):
             else:
                 QMessageBox.warning(self, "Lỗi", "Tên đăng nhập hoặc mật khẩu không đúng!")
         except Exception as e:
-            QMessageBox.critical(self, "Lỗi hệ thống", str(e))
+            QMessageBox.critical(self, "CÓ cái lol", str(e))
 
     def handle_register_click(self):
         """Xử lý khi click vào link đăng ký"""
