@@ -8,12 +8,12 @@ from utils.sound_manager import get_sound_manager
 class DrowsinessAlertDialog(QDialog):
     """Dialog cảnh báo buồn ngủ với âm thanh"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, id=None):
         super().__init__(parent)
         self.setWindowTitle("⚠️ CẢNH BÁO BUỒN NGỦ")
         self.setModal(True)
         self.setFixedSize(500, 300)
-
+        self.crurrent_id = id
         # Sound manager
         self.sound_manager = None
         self.sound_started = False
@@ -26,7 +26,7 @@ class DrowsinessAlertDialog(QDialog):
         # Auto close sau 10 giây
         self.auto_close_timer = QTimer()
         self.auto_close_timer.timeout.connect(self.auto_reject)
-        self.auto_close_timer.start(10000)
+        self.auto_close_timer.start(3000)
 
     def start_sound(self):
         """Bắt đầu phát âm thanh"""

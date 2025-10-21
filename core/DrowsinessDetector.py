@@ -32,7 +32,7 @@ class DrowsinessDetector:
         self.alert_active = False
         self.alert_start_time = None
         self.last_alert_time = 0
-        self.alert_cooldown = 5
+        self.alert_cooldown = 3
 
         # Trạng thái hiện tại
         self.current_class = "Unknown"
@@ -41,6 +41,9 @@ class DrowsinessDetector:
 
         self.processing_queue = queue.Queue(maxsize=30)
         self.result_queue = queue.Queue(maxsize=30)
+        self.frame_queue = queue.Queue(maxsize=90)
+        self.is_save_img = False
+        self.current_frame_id = None
 
         self._init_database()
         Path("drowsy_images").mkdir(exist_ok=True)
@@ -49,6 +52,9 @@ class DrowsinessDetector:
         self.running = True
         self.thread = threading.Thread(target=self._processing_loop, daemon=True)
         self.thread.start()
+        # Thread lưu ảnh
+        self.img_thread = threading.Thread(target=self._save_img, daemon=True)
+        self.img_thread.start()
 
     def _init_database(self):
         """Khởi tạo database"""
@@ -87,7 +93,7 @@ class DrowsinessDetector:
                        INSERT INTO alerts (timestamp, duration, confirmed, drowsy_ratio, confidence_avg, image_path,
                                            notes)
                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ''', (datetime.now().isoformat(), duration, confirmed, drowsy_ratio, confidence_avg, image_path,
+                       ''', (self.current_frame_id, duration, confirmed, drowsy_ratio, confidence_avg, image_path,
                              notes))
         self.conn.commit()
 
@@ -97,6 +103,17 @@ class DrowsinessDetector:
         filename = f"drowsy_images/drowsy_{timestamp}.jpg"
         cv2.imwrite(filename, frame)
         return filename
+
+    def _save_img(self):
+        """Lưu ảnh cảnh báo"""
+        while self.running:
+            time.sleep(1)
+            if self.is_save_img:
+                timestamp = self.current_frame_id
+                os.makedirs(f"drowsy_images/drowsy_{timestamp}", exist_ok=True)
+                for i, (_, frame) in enumerate(list(self.frame_queue.queue.copy())):
+                    cv2.imwrite(f"drowsy_images/drowsy_{timestamp}/frame_{i}.jpg", frame)
+                self.is_save_img = False
 
     def _processing_loop(self):
         """Luồng riêng xử lý YOLO"""
@@ -144,8 +161,10 @@ class DrowsinessDetector:
         if not self.processing_queue.full():
             try:
                 self.processing_queue.put_nowait((time.time(), frame.copy()))
+                self.frame_queue.put_nowait((time.time(), frame.copy()))
             except queue.Full:
-                pass
+                self.frame_queue.get_nowait()
+                self.frame_queue.put_nowait((time.time(), frame.copy()))
 
         # Nhận kết quả từ queue
         try:
@@ -198,6 +217,8 @@ class DrowsinessDetector:
                 if elapsed >= self.alert_threshold:
                     # Kiểm tra cooldown
                     if current_time - self.last_alert_time > self.alert_cooldown:
+                        self.current_frame_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        self.is_save_img = True
                         self._trigger_alert(frame, drowsy_ratio, avg_conf)
                         self.last_alert_time = current_time
             else:
@@ -208,7 +229,6 @@ class DrowsinessDetector:
     def _trigger_alert(self, frame, drowsy_ratio, avg_conf):
         """Kích hoạt cảnh báo"""
         self.alert_active = True
-
         image_path = self._save_image(frame)
 
         # Gọi callback nếu có
@@ -298,4 +318,6 @@ class DrowsinessDetector:
         self.running = False
         if self.thread.is_alive():
             self.thread.join(timeout=2)
+        if self.img_thread.is_alive():
+            self.img_thread.join(timeout=2)
         self.conn.close()

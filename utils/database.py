@@ -7,49 +7,49 @@ from pathlib import Path
 class UserDatabase:
     """Class quản lý database người dùng"""
 
-    def __init__(self, db_path='users.db'):
+    def __init__(self, db_path='user.db'):
         self.db_path = db_path
         self.conn = None
-        self._init_database()
+        # self._init_database()
 
-    def _init_database(self):
-        """Khởi tạo database"""
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        cursor = self.conn.cursor()
-
-        # Bảng users
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                full_name TEXT NOT NULL,
-                email TEXT,
-                phone TEXT,
-                created_at TEXT NOT NULL,
-                last_login TEXT,
-                is_active BOOLEAN DEFAULT 1
-            )
-        ''')
-
-        # Bảng driving_sessions
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS driving_sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                start_time TEXT NOT NULL,
-                end_time TEXT,
-                duration INTEGER,
-                total_alerts INTEGER DEFAULT 0,
-                confirmed_drowsy INTEGER DEFAULT 0,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
-
-        self.conn.commit()
-
-        # KHÔNG tạo admin mặc định nữa
-        # Admin sẽ được xử lý ở login_view.py
+    # def _init_database(self):
+    #     """Khởi tạo database"""
+    #     self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+    #     cursor = self.conn.cursor()
+    #
+    #     # Bảng users
+    #     cursor.execute('''
+    #         CREATE TABLE IF NOT EXISTS users (
+    #             id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #             username TEXT UNIQUE NOT NULL,
+    #             password TEXT NOT NULL,
+    #             full_name TEXT NOT NULL,
+    #             email TEXT,
+    #             phone TEXT,
+    #             created_at TEXT NOT NULL,
+    #             last_login TEXT,
+    #             is_active BOOLEAN DEFAULT 1
+    #         )
+    #     ''')
+    #
+    #     # Bảng driving_sessions
+    #     cursor.execute('''
+    #         CREATE TABLE IF NOT EXISTS driving_sessions (
+    #             id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #             user_id INTEGER NOT NULL,
+    #             start_time TEXT NOT NULL,
+    #             end_time TEXT,
+    #             duration INTEGER,
+    #             total_alerts INTEGER DEFAULT 0,
+    #             confirmed_drowsy INTEGER DEFAULT 0,
+    #             FOREIGN KEY (user_id) REFERENCES users (id)
+    #         )
+    #     ''')
+    #
+    #     self.conn.commit()
+    #
+    #     # KHÔNG tạo admin mặc định nữa
+    #     # Admin sẽ được xử lý ở login_view.py
 
     def _hash_password(self, password):
         """Mã hóa mật khẩu bằng SHA256"""

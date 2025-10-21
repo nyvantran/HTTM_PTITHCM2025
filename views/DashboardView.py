@@ -5,8 +5,6 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QDateTime, QSize
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from views.Dialogs import DrowsinessAlertDialog, RestAlertDialog
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
-from PyQt5.QtCore import QUrl
 
 import os
 import traceback
@@ -16,6 +14,8 @@ class DashboardView(QWidget):
     """View dashboard chính với tích hợp camera"""
 
     logout_signal = pyqtSignal()
+    statistics_signal = pyqtSignal()  # MỚI
+    videos_signal = pyqtSignal()  # MỚI
 
     def __init__(self):
         super().__init__()
@@ -77,6 +77,46 @@ class DashboardView(QWidget):
         self.drive_time_label.setFont(QFont('Arial', 10))
         self.drive_time_label.setStyleSheet("color: #27ae60;")
 
+        # NÚT MỚI: Thống kê
+        stats_button = QPushButton("📊 Thống kê")
+        stats_button.setMaximumHeight(35)
+        stats_button.setMinimumWidth(100)
+        stats_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        stats_button.clicked.connect(self.show_statistics)
+
+        # NÚT MỚI: Xem video
+        video_button = QPushButton("🎬 Xem video")
+        video_button.setMaximumHeight(35)
+        video_button.setMinimumWidth(100)
+        video_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+        """)
+        video_button.clicked.connect(self.show_videos)
+
         # Nút bắt đầu/kết thúc
         self.start_button = QPushButton("🚗 Bắt đầu")
         self.start_button.setMaximumHeight(35)
@@ -120,6 +160,8 @@ class DashboardView(QWidget):
         layout.addWidget(self.user_label)
         layout.addWidget(self.drive_time_label)
         layout.addStretch()
+        layout.addWidget(stats_button)  # NÚT MỚI
+        layout.addWidget(video_button)  # NÚT MỚI
         layout.addWidget(self.start_button)
         layout.addWidget(logout_button)
 
@@ -540,7 +582,7 @@ class DashboardView(QWidget):
 
     def handle_drowsiness_alert(self, drowsy_ratio, confidence):
         """Xử lý cảnh báo"""
-        dialog = DrowsinessAlertDialog(self)
+        dialog = DrowsinessAlertDialog(self, self.detector.current_frame_id)
         result = dialog.exec_()
 
         current_time = QDateTime.currentDateTime()
@@ -553,7 +595,7 @@ class DashboardView(QWidget):
             if self.detector:
                 try:
                     self.detector.update_alert_confirmation(
-                        self.current_alert_timestamp,
+                        dialog.crurrent_id,
                         confirmed=True,
                         notes="Xác nhận"
                     )
@@ -578,7 +620,7 @@ class DashboardView(QWidget):
             if self.detector:
                 try:
                     self.detector.update_alert_confirmation(
-                        self.current_alert_timestamp,
+                        self=dialog.current_id,
                         confirmed=False,
                         notes="Từ chối"
                     )
@@ -717,4 +759,10 @@ class DashboardView(QWidget):
         """Set database"""
         self.db = db
 
+    def show_statistics(self):
+        """Hiển thị trang thống kê"""
+        self.statistics_signal.emit()
 
+    def show_videos(self):
+        """Hiển thị trang xem video"""
+        self.videos_signal.emit()
