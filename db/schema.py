@@ -57,7 +57,6 @@ def create_tables():
             startTime DATETIME,
             endTime DATETIME,
             userChoiceLabel BOOLEAN,
-            isLabel BOOLEAN DEFAULT 0,
             FOREIGN KEY (sessionID) REFERENCES Session(ID)
         )
         """)

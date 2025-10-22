@@ -7,7 +7,7 @@ def insert_frame(drowsy_video_id: int, confidence: float, prediction: bool, imag
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO Frame (drowsyVideoID, confidenceScore, modelPrediction, imageURL, datasetID, createdAt)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, NULL, ?)
         """, (drowsy_video_id, confidence, prediction, image_path, dataset_id, datetime.now().isoformat()))
         conn.commit()
         return cursor.lastrowid
