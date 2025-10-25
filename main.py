@@ -12,7 +12,6 @@ from PyQt5.QtCore import Qt
 from views.LoginView import LoginView
 from views.register_view import RegisterView
 from views.DashboardView import DashboardView
-from utils.database import UserDatabase
 from utils.sound_manager import cleanup_sound_manager
 from services.session_service import SessionService
 
@@ -31,7 +30,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 600)  # Kích thước tối thiểu
 
         # Database
-        # self.db = UserDatabase()
         self.current_user = None
 
         # Stacked widget
@@ -202,8 +200,8 @@ class MainWindow(QMainWindow):
             cleanup_sound_manager()
 
             # Đóng database
-            print("💾 Đang đóng database...")
-            self.db.close()
+            # print("💾 Đang đóng database...")
+            # self.db.close()
 
             print("✅ Đã đóng an toàn\n")
             if hasattr(self.dashboard_view, 'camera_thread') and self.dashboard_view.camera_thread:

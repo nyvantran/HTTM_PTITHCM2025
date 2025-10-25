@@ -330,6 +330,7 @@ class DashboardView(QWidget):
                 model_path=self.model_path,
                 batch_size=4,
                 alert_threshold=3,
+                session_id=self.current_session_id,
             )
             print("✅ Detector initialized")
 
@@ -485,7 +486,7 @@ class DashboardView(QWidget):
                     self.detector.update_alert_confirmation(
                         dialog.crurrent_id,
                         confirmed=True,
-                        notes="Xác nhận"
+                        notes="True"
                     )
                 except:
                     pass
@@ -506,7 +507,7 @@ class DashboardView(QWidget):
                     self.detector.update_alert_confirmation(
                         self=dialog.current_id,
                         confirmed=False,
-                        notes="Từ chối"
+                        notes="Flase"
                     )
                 except:
                     pass
