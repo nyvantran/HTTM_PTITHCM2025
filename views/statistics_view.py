@@ -114,7 +114,7 @@ class StatisticsView(QWidget):
         main_layout.addLayout(header_layout)
 
         # Stats cards
-        # stats_cards_layout = self.create_stats_cards()
+        stats_cards_layout = self.create_stats_cards()
         # main_layout.addLayout(stats_cards_layout)
 
         # Content

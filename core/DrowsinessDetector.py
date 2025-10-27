@@ -11,6 +11,7 @@ import queue
 import os
 import repository.drowsy_video_repo as drowsy_video_repo
 import repository.frame_repo as frame_repo
+import core.config as config
 
 
 class DrowsinessDetector:
@@ -50,7 +51,8 @@ class DrowsinessDetector:
         self.session_id = kwargs.get("session_id")
 
         # self._init_database()
-        Path("drowsy_images").mkdir(exist_ok=True)
+        self.drowsy_path = config.config.get('drowsy_image_path', 'drowsy_images')
+        Path(self.drowsy_path).mkdir(exist_ok=True)
 
         # Thread xử lý YOLO
         self.running = True
@@ -67,10 +69,10 @@ class DrowsinessDetector:
             if self.is_save_img:
                 timestamp = self.current_frame_id
                 last_id = self.last_frame_id
-                os.makedirs(f"drowsy_images/drowsy_{timestamp}", exist_ok=True)
+                os.makedirs(f"{self.drowsy_path}/drowsy_{timestamp}", exist_ok=True)
                 drowsyVideoID = drowsy_video_repo.create_drowsy_video(self.session_id, last_id, timestamp)
                 for i, (idx, _, confidence, class_name, frame) in enumerate(list(self.frame_queue.queue.copy())):
-                    url_img = f"drowsy_images/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
+                    url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
                     cv2.imwrite(url_img, frame)
                     frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
                 self.is_save_img = False
@@ -261,4 +263,4 @@ class DrowsinessDetector:
             self.thread.join(timeout=2)
         if self.img_thread.is_alive():
             self.img_thread.join(timeout=2)
-        self.conn.close()
+        # self.conn.close()

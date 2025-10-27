@@ -8,6 +8,7 @@ from views.Dialogs import DrowsinessAlertDialog, RestAlertDialog
 
 import os
 import traceback
+import core.config as config
 
 
 class DashboardView(QWidget):
@@ -334,7 +335,7 @@ class DashboardView(QWidget):
             )
             print("✅ Detector initialized")
 
-            self.camera_thread = CameraThread(self.detector, camera_source=0)
+            self.camera_thread = CameraThread(self.detector, camera_source=config.config.get("camera", 0)['source'])
             self.camera_thread.frame_ready.connect(self.update_camera_frame)
             self.camera_thread.drowsiness_alert.connect(self.handle_drowsiness_alert)
             self.camera_thread.error_occurred.connect(self.handle_camera_error)
