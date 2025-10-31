@@ -5,11 +5,15 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QDateTime, QSize
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from views.Dialogs import DrowsinessAlertDialog, RestAlertDialog
+
 import os
 import traceback
 
+
 class DashboardView(QWidget):
     logout_signal = pyqtSignal()
+    statistics_signal = pyqtSignal()  # MỚI
+    videos_signal = pyqtSignal()  # MỚI
 
     def __init__(self):
         super().__init__()
@@ -55,6 +59,47 @@ class DashboardView(QWidget):
         self.drive_time_label.setFont(QFont('Arial', 10))
         self.drive_time_label.setStyleSheet("color: #27ae60;")
 
+        # NÚT MỚI: Thống kê
+        stats_button = QPushButton("📊 Thống kê")
+        stats_button.setMaximumHeight(35)
+        stats_button.setMinimumWidth(100)
+        stats_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        stats_button.clicked.connect(self.show_statistics)
+
+        # NÚT MỚI: Xem video
+        video_button = QPushButton("🎬 Xem video")
+        video_button.setMaximumHeight(35)
+        video_button.setMinimumWidth(100)
+        video_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+        """)
+        video_button.clicked.connect(self.show_videos)
+
+        # Nút bắt đầu/kết thúc
         self.start_button = QPushButton("🚗 Bắt đầu")
         self.start_button.setMaximumHeight(35)
         self.start_button.setMinimumWidth(120)
@@ -96,6 +141,8 @@ class DashboardView(QWidget):
         layout.addWidget(self.user_label)
         layout.addWidget(self.drive_time_label)
         layout.addStretch()
+        layout.addWidget(stats_button)  # NÚT MỚI
+        layout.addWidget(video_button)  # NÚT MỚI
         layout.addWidget(self.start_button)
         layout.addWidget(logout_button)
         return layout
@@ -277,11 +324,13 @@ class DashboardView(QWidget):
             from core.DrowsinessDetector import DrowsinessDetector
             from utils.CameraThread import CameraThread
 
-            print(f"🔧 Initializing detector with user_id={self.current_user['id']}, session_id={self.current_session_id}")
+            print(
+                f"🔧 Initializing detector with user_id={self.current_user['id']}, session_id={self.current_session_id}")
             self.detector = DrowsinessDetector(
                 model_path=self.model_path,
                 batch_size=4,
                 alert_threshold=3,
+                session_id=self.current_session_id,
             )
             print("✅ Detector initialized")
 
@@ -324,8 +373,7 @@ class DashboardView(QWidget):
 
     def select_model_path(self):
         default_paths = [
-            r"D:\Project\Các hệ thống thông minh\test1\core\train_rs\weights\best.pt",
-            r"weights\best.pt",
+            r"core\best.pt",
             r"best.pt",
             r"models\best.pt"
         ]
@@ -422,20 +470,27 @@ class DashboardView(QWidget):
             print(f"Error updating frame: {e}")
 
     def handle_drowsiness_alert(self, drowsy_ratio, confidence):
-        dialog = DrowsinessAlertDialog(self)
+        """Xử lý cảnh báo"""
+        dialog = DrowsinessAlertDialog(self, self.detector.current_frame_id)
         result = dialog.exec_()
 
         current_time = QDateTime.currentDateTime()
         drive_time = self.drive_time_label.text().replace("⏱️ ", "")
 
+        self.current_alert_timestamp = current_time.toString(Qt.ISODate)
+
         if result == DrowsinessAlertDialog.Accepted:
             self.add_log(current_time.toString("HH:mm:ss"), drive_time, "✅ Buồn ngủ")
             if self.detector:
-                self.detector.update_alert_confirmation(
-                    self.current_alert_timestamp,
-                    confirmed=True,
-                    notes="Xác nhận"
-                )
+                try:
+                    self.detector.update_alert_confirmation(
+                        dialog.crurrent_id,
+                        confirmed=True,
+                        notes="True"
+                    )
+                except:
+                    pass
+
             if self.last_drowsiness_time is None or \
                     self.last_drowsiness_time.secsTo(current_time) > self.drowsiness_window:
                 self.drowsiness_count = 1
@@ -448,11 +503,14 @@ class DashboardView(QWidget):
         else:
             self.add_log(current_time.toString("HH:mm:ss"), drive_time, "❌ Tỉnh táo")
             if self.detector:
-                self.detector.update_alert_confirmation(
-                    self.current_alert_timestamp,
-                    confirmed=False,
-                    notes="Từ chối"
-                )
+                try:
+                    self.detector.update_alert_confirmation(
+                        self=dialog.current_id,
+                        confirmed=False,
+                        notes="Flase"
+                    )
+                except:
+                    pass
 
     def show_rest_alert(self):
         dialog = RestAlertDialog(self)
@@ -548,3 +606,15 @@ class DashboardView(QWidget):
         self.stop_monitoring()
         self.log_table.setRowCount(0)
         self.logout_signal.emit()
+
+    def set_database(self, db):
+        """Set database"""
+        self.db = db
+
+    def show_statistics(self):
+        """Hiển thị trang thống kê"""
+        self.statistics_signal.emit()
+
+    def show_videos(self):
+        """Hiển thị trang xem video"""
+        self.videos_signal.emit()

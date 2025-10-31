@@ -61,3 +61,12 @@ def update_user_choice_by_start_time(start_time: str, user_choice: bool):
             conn.rollback()
         return 0
 
+def create_drowsy_video(session_id: int, start_time: datetime, end_time: datetime):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+                       INSERT INTO DrowsyVideo (sessionID, startTime, isLabel, endTime)
+                       VALUES (?, ?, 0, ?)
+                       """, (session_id, start_time.format(), end_time))
+        conn.commit()
+        return cursor.lastrowid
