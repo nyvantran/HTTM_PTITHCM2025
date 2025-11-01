@@ -28,35 +28,34 @@ class DrowsinessDetector:
         self.alert_threshold = alert_threshold
         self.callback = callback
 
-        # Lưu trữ kết quả phân loại gần đây
-        self.drowsy_history = deque(maxlen=int(30 * alert_threshold))
-        self.confidence_history = deque(maxlen=int(30 * alert_threshold))
+        self.drowsy_history = deque(maxlen=int(30 * alert_threshold)) # Lịch sử phát hiện buồn ngủ
+        self.confidence_history = deque(maxlen=int(30 * alert_threshold)) # confidence score tương ứng với các lần ghi nhận trong hàng đợi drowsy history phía trên
 
         self.alert_active = False
         self.alert_start_time = None
-        self.last_alert_time = 0
-        self.alert_cooldown = 3
+        self.last_alert_time = 0 # Lần cuối cùng alert
+        self.alert_cooldown = 10
 
-        # Trạng thái hiện tại
+        # Trạng thái khởi tạo
         self.current_class = "Unknown"
         self.current_confidence = 0.0
         self.drowsy_ratio = 0.0
 
-        self.processing_queue = queue.Queue(maxsize=30)
-        self.result_queue = queue.Queue(maxsize=30)
-        self.frame_queue = queue.Queue(maxsize=90)
-        self.is_save_img = False
-        self.current_frame_id = None
-        self.last_frame_id = None
-        self.session_id = kwargs.get("session_id")
+        self.processing_queue = queue.Queue(maxsize=30) # Hàng đợi cho (idx, frame)
+        self.result_queue = queue.Queue(maxsize=30) # hàng kết quả (rs - frame)
+        self.frame_queue = queue.Queue(maxsize=90) # hàng đợi - (rs - frame) phục vụ cho lưu trữ
+        self.is_save_img = False # Quyết định lưu frame hình
+        self.current_frame_id = None # Frame id hiện tại
+        self.last_frame_id = None # frame id cuối trước đó
+        self.session_id = kwargs.get("session_id") # Phiên làm việc
 
-        # self._init_database()
+        # load các config: model - path image - camera
         self.drowsy_path = config.config.get('drowsy_image_path', 'drowsy_images')
         Path(self.drowsy_path).mkdir(exist_ok=True)
 
         # Thread xử lý YOLO
         self.running = True
-        self.thread = threading.Thread(target=self._processing_loop, daemon=True)
+        self.thread = threading.Thread(target=self._processing_loop, daemon=True) 
         self.thread.start()
         # Thread lưu ảnh
         self.img_thread = threading.Thread(target=self._save_img, daemon=True)
@@ -67,14 +66,16 @@ class DrowsinessDetector:
         while self.running:
             time.sleep(1)
             if self.is_save_img:
-                timestamp = self.current_frame_id
+                timestamp = self.current_frame_id # lấy ID chứ time nào ??
                 last_id = self.last_frame_id
                 os.makedirs(f"{self.drowsy_path}/drowsy_{timestamp}", exist_ok=True)
                 drowsyVideoID = drowsy_video_repo.create_drowsy_video(self.session_id, last_id, timestamp)
+                
                 for i, (idx, _, confidence, class_name, frame) in enumerate(list(self.frame_queue.queue.copy())):
                     url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
                     cv2.imwrite(url_img, frame)
                     frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
+                    
                 self.is_save_img = False
 
     def _processing_loop(self):
@@ -99,6 +100,7 @@ class DrowsinessDetector:
             # Xử lý batch
             results = self.model(frames, verbose=False)
 
+            # Lấy kết quả ứng với idx ban đầu
             for idx, result in zip(frame_indices, results):
                 # Lấy class và confidence
                 class_id = result.probs.top1
@@ -112,11 +114,15 @@ class DrowsinessDetector:
                 try:
                     self.result_queue.put_nowait((idx, is_drowsy, confidence, class_name, result.orig_img))
                     if self.frame_queue.full():
-                        self.last_frame_id = self.frame_queue.get_nowait()[0]
+                        self.last_frame_id = self.frame_queue.get_nowait()[0] # lấy ra frame xử lý sớm nhất mà chưa được xuất hình
                     self.frame_queue.put_nowait((idx, is_drowsy, confidence, class_name, result.orig_img.copy()))
                 except queue.Full:
-                    self.frame_queue.get_nowait()
-
+                    if self.result_queue.full():
+                        self.frame_queue.get_nowait()
+                    else:
+                        self.frame_queue.get_nowait()
+    
+    # Tiến trình gửi các frame hình vào hàng đợi xử lý + xử lý hàng đợi đã qua model, vẽ lên ảnh thông số hiển thị
     def process_frame(self, frame):
         """
         Xử lý một frame
@@ -204,6 +210,7 @@ class DrowsinessDetector:
 
     def _get_alert_progress(self):
         """Lấy tiến trình cảnh báo (0-1)"""
+        #   
         if self.alert_start_time is None:
             return 0.0
         elapsed = time.time() - self.alert_start_time
