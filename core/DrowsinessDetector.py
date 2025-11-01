@@ -66,15 +66,16 @@ class DrowsinessDetector:
         while self.running:
             time.sleep(1)
             if self.is_save_img:
-                timestamp = self.current_frame_id # lấy ID chứ time nào ??
+                timestamp = self.current_frame_id
                 last_id = self.last_frame_id
                 os.makedirs(f"{self.drowsy_path}/drowsy_{timestamp}", exist_ok=True)
                 drowsyVideoID = drowsy_video_repo.create_drowsy_video(self.session_id, last_id, timestamp)
                 
                 for i, (idx, _, confidence, class_name, frame) in enumerate(list(self.frame_queue.queue.copy())):
-                    url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
-                    cv2.imwrite(url_img, frame)
-                    frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
+                    if confidence > 0.8:
+                        url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
+                        cv2.imwrite(url_img, frame) # Lưu lại frame hình
+                        frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
                     
                 self.is_save_img = False
 
@@ -118,7 +119,7 @@ class DrowsinessDetector:
                     self.frame_queue.put_nowait((idx, is_drowsy, confidence, class_name, result.orig_img.copy()))
                 except queue.Full:
                     if self.result_queue.full():
-                        self.frame_queue.get_nowait()
+                        self.result_queue.get_nowait()
                     else:
                         self.frame_queue.get_nowait()
     
