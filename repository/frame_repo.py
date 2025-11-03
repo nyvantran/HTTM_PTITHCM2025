@@ -29,15 +29,13 @@ def delete_frames_by_video(video_id: int):
         conn.execute("DELETE FROM Frame WHERE drowsyVideoID = ?", (video_id,))
         conn.commit()
 
-from db.db import get_connection
-
 def get_high_confidence_frames(drowsy_video_id: int, threshold: float = 0.7):
     """Lấy các frame có confidenceScore > threshold từ 1 video."""
     with get_connection() as conn:
         cursor = conn.execute("""
             SELECT ID, drowsyVideoID, confidenceScore, modelPrediction, imageURL
             FROM Frame
-            WHERE drowsyVideoID = ? AND confidenceScore > ?
+            WHERE drowsyVideoID = ? AND confidenceScore > ? AND modelPrediction = 1
         """, (drowsy_video_id, threshold))
         return cursor.fetchall()
 

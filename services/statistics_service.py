@@ -64,25 +64,15 @@ def get_daily_detail_statistics(user_id: int, days: int = 7):
     """
     Trả về thống kê chi tiết theo ngày:
       - Số video cảnh báo (model detect)
-      - Số video người dùng xác nhận buồn ngủ
+      - Số video người dùng xác nhận (bất kỳ label != NULL)
       - Tổng thời gian lái trong ngày
-
-    Args:
-        user_id (int): ID người dùng
-        days (int): số ngày muốn thống kê (ví dụ: 7, 30...)
-
-    Returns:
-        List[dict]: [
-            {'date': '2025-10-27', 'alert_count': 2, 'confirmed_count': 1, 'driving_time': '3h11m'},
-            ...
-        ]
     """
     with get_connection() as conn:
         cursor = conn.execute("""
             SELECT 
                 SUBSTR(DrowsyVideo.startTime, 1, 8) AS raw_date,
                 COUNT(DrowsyVideo.ID) AS alert_count,
-                SUM(CASE WHEN DrowsyVideo.userChoiceLabel = 1 THEN 1 ELSE 0 END) AS confirmed_count,
+                SUM(CASE WHEN DrowsyVideo.userChoiceLabel IS NOT NULL THEN 1 ELSE 0 END) AS confirmed_count,
                 MIN(Session.startTime) AS session_start,
                 MAX(Session.endTime) AS session_end
             FROM DrowsyVideo
@@ -100,8 +90,8 @@ def get_daily_detail_statistics(user_id: int, days: int = 7):
             # format ngày: 20251027 → 27/10/2025
             date_fmt = f"{raw_date[6:8]}/{raw_date[4:6]}/{raw_date[:4]}"
 
-            # Tính TG lái xe (end - start)
-            drive_time = None
+            # Tính tổng thời gian lái xe (end - start)
+            drive_time = "--"
             if start and end:
                 try:
                     s = datetime.strptime(start, "%Y%m%d_%H%M%S")
@@ -111,12 +101,13 @@ def get_daily_detail_statistics(user_id: int, days: int = 7):
                     minutes = remainder // 60
                     drive_time = f"{hours}h {minutes}m"
                 except Exception:
-                    drive_time = "--"
+                    pass
 
             results.append({
                 "date": date_fmt,
                 "alert_count": alert_count or 0,
                 "confirmed_count": confirmed_count or 0,
-                "driving_time": drive_time or "--"
+                "driving_time": drive_time
             })
+
         return results
