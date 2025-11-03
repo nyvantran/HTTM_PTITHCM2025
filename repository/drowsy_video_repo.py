@@ -45,7 +45,7 @@ def update_user_choice_by_start_time(start_time: str, user_choice: bool):
             cursor.execute("""
                 UPDATE DrowsyVideo
                 SET userChoiceLabel = ?
-                WHERE startTime = ?
+                WHERE endTime = ?
             """, (user_choice, start_time))
             conn.commit()
 
@@ -70,3 +70,16 @@ def create_drowsy_video(session_id: int, start_time: datetime, end_time: datetim
                        """, (session_id, start_time.format(), end_time))
         conn.commit()
         return cursor.lastrowid
+    
+def get_drowsy_video_by_start_time(start_time: str):
+    """
+    Truy vấn video theo startTime (định dạng 'YYYYMMDD_HHMMSS')
+    """
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT ID, sessionID, startTime, endTime, userChoiceLabel
+            FROM DrowsyVideo
+            WHERE startTime = ?
+        """, (start_time,))
+        return cursor.fetchone()
+

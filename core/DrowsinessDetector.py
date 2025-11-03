@@ -254,7 +254,7 @@ class DrowsinessDetector:
 
     def update_alert_confirmation(self, timestamp, confirmed, notes=False):
         """Cập nhật xác nhận cảnh báo"""
-        drowsy_video_repo.end_drowsy_video(timestamp, confirmed, notes)
+        drowsy_video_repo.update_user_choice_by_start_time(timestamp, confirmed)
 
     def stop(self):
         """Dừng detector"""

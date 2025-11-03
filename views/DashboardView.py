@@ -487,7 +487,6 @@ class DashboardView(QWidget):
                     self.detector.update_alert_confirmation(
                         dialog.crurrent_id,
                         confirmed=True,
-                        notes="True"
                     )
                 except:
                     pass
@@ -508,7 +507,6 @@ class DashboardView(QWidget):
                     self.detector.update_alert_confirmation(
                         self=dialog.current_id,
                         confirmed=False,
-                        notes="Flase"
                     )
                 except:
                     pass
