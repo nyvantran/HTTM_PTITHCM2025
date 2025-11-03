@@ -2,8 +2,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QMessageBox, QFrame)
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont, QCursor
-from utils.database import UserDatabase
-
+from services.user_service import UserService
 
 class LoginView(QWidget):
     """View đăng nhập"""
@@ -12,9 +11,9 @@ class LoginView(QWidget):
     login_success = pyqtSignal(dict)  # Truyền user_info
     register_clicked = pyqtSignal()
 
-    def __init__(self, db: UserDatabase):
+    def __init__(self):
         super().__init__()
-        self.db = db
+        self.user_service = UserService()
         self.init_ui()
 
     def init_ui(self):
@@ -165,12 +164,11 @@ class LoginView(QWidget):
         username = self.username_input.text().strip()
         password = self.password_input.text().strip()
 
-        # Validation
         if not username or not password:
             QMessageBox.warning(self, "Lỗi", "Vui lòng nhập đầy đủ thông tin!")
             return
 
-        # Kiểm tra đăng nhập mặc định admin/admin
+        # Cho phép admin mặc định
         if username == "admin" and password == "admin":
             user_info = {
                 'id': 0,
@@ -184,19 +182,15 @@ class LoginView(QWidget):
             self.clear_form()
             return
 
-        # Kiểm tra đăng nhập với database
-        success, user_info = self.db.login_user(username, password)
-
-        if success:
-            self.login_success.emit(user_info)
-            self.clear_form()
-        else:
-            QMessageBox.warning(
-                self,
-                "Lỗi",
-                "Tên đăng nhập hoặc mật khẩu không đúng!\n\n"
-                "💡 Tip: Dùng admin/admin để đăng nhập nhanh"
-            )
+        try:
+            user_info = self.user_service.login_user(username, password)
+            if user_info:
+                self.login_success.emit(user_info)
+                self.clear_form()
+            else:
+                QMessageBox.warning(self, "Lỗi", "Tên đăng nhập hoặc mật khẩu không đúng!")
+        except Exception as e:
+            QMessageBox.critical(self, "CÓ cái lol", str(e))
 
     def handle_register_click(self):
         """Xử lý khi click vào link đăng ký"""

@@ -9,10 +9,13 @@ from pathlib import Path
 import threading
 import queue
 import os
+import repository.drowsy_video_repo as drowsy_video_repo
+import repository.frame_repo as frame_repo
+import core.config as config
 
 
 class DrowsinessDetector:
-    def __init__(self, model_path, batch_size=4, alert_threshold=3, callback=None):
+    def __init__(self, model_path, batch_size=4, alert_threshold=3, callback=None, **kwargs):
         """
         Args:
             model_path: Đường dẫn đến model YOLO
@@ -32,7 +35,7 @@ class DrowsinessDetector:
         self.alert_active = False
         self.alert_start_time = None
         self.last_alert_time = 0
-        self.alert_cooldown = 5
+        self.alert_cooldown = 3
 
         # Trạng thái hiện tại
         self.current_class = "Unknown"
@@ -41,62 +44,38 @@ class DrowsinessDetector:
 
         self.processing_queue = queue.Queue(maxsize=30)
         self.result_queue = queue.Queue(maxsize=30)
+        self.frame_queue = queue.Queue(maxsize=90)
+        self.is_save_img = False
+        self.current_frame_id = None
+        self.last_frame_id = None
+        self.session_id = kwargs.get("session_id")
 
-        self._init_database()
-        Path("drowsy_images").mkdir(exist_ok=True)
+        # self._init_database()
+        self.drowsy_path = config.config.get('drowsy_image_path', 'drowsy_images')
+        Path(self.drowsy_path).mkdir(exist_ok=True)
 
         # Thread xử lý YOLO
         self.running = True
         self.thread = threading.Thread(target=self._processing_loop, daemon=True)
         self.thread.start()
+        # Thread lưu ảnh
+        self.img_thread = threading.Thread(target=self._save_img, daemon=True)
+        self.img_thread.start()
 
-    def _init_database(self):
-        """Khởi tạo database"""
-        self.conn = sqlite3.connect('drowsiness_log.db', check_same_thread=False)
-        cursor = self.conn.cursor()
-        cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS alerts
-                       (
-                           id
-                           INTEGER
-                           PRIMARY
-                           KEY
-                           AUTOINCREMENT,
-                           timestamp
-                           TEXT,
-                           duration
-                           REAL,
-                           confirmed
-                           BOOLEAN,
-                           drowsy_ratio
-                           REAL,
-                           confidence_avg
-                           REAL,
-                           image_path
-                           TEXT,
-                           notes
-                           TEXT
-                       )
-                       ''')
-        self.conn.commit()
-
-    def _save_to_db(self, duration, confirmed, drowsy_ratio, confidence_avg, image_path=None, notes=""):
-        """Lưu vào database"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-                       INSERT INTO alerts (timestamp, duration, confirmed, drowsy_ratio, confidence_avg, image_path,
-                                           notes)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ''', (datetime.now().isoformat(), duration, confirmed, drowsy_ratio, confidence_avg, image_path,
-                             notes))
-        self.conn.commit()
-
-    def _save_image(self, frame):
+    def _save_img(self):
         """Lưu ảnh cảnh báo"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"drowsy_images/drowsy_{timestamp}.jpg"
-        cv2.imwrite(filename, frame)
-        return filename
+        while self.running:
+            time.sleep(1)
+            if self.is_save_img:
+                timestamp = self.current_frame_id
+                last_id = self.last_frame_id
+                os.makedirs(f"{self.drowsy_path}/drowsy_{timestamp}", exist_ok=True)
+                drowsyVideoID = drowsy_video_repo.create_drowsy_video(self.session_id, last_id, timestamp)
+                for i, (idx, _, confidence, class_name, frame) in enumerate(list(self.frame_queue.queue.copy())):
+                    url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
+                    cv2.imwrite(url_img, frame)
+                    frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
+                self.is_save_img = False
 
     def _processing_loop(self):
         """Luồng riêng xử lý YOLO"""
@@ -132,8 +111,11 @@ class DrowsinessDetector:
                 # Đưa kết quả vào result_queue
                 try:
                     self.result_queue.put_nowait((idx, is_drowsy, confidence, class_name, result.orig_img))
+                    if self.frame_queue.full():
+                        self.last_frame_id = self.frame_queue.get_nowait()[0]
+                    self.frame_queue.put_nowait((idx, is_drowsy, confidence, class_name, result.orig_img.copy()))
                 except queue.Full:
-                    pass
+                    self.frame_queue.get_nowait()
 
     def process_frame(self, frame):
         """
@@ -141,17 +123,17 @@ class DrowsinessDetector:
         Returns: (processed_frame, status_dict)
         """
         # Gửi frame vào queue xử lý
+        id = datetime.now().strftime("%Y%m%d_%H%M%S")
         if not self.processing_queue.full():
             try:
-                self.processing_queue.put_nowait((time.time(), frame.copy()))
+                self.processing_queue.put_nowait((id, frame.copy()))
             except queue.Full:
                 pass
-
         # Nhận kết quả từ queue
         try:
             while not self.result_queue.empty():
-                _, is_drowsy, confidence, class_name, _ = self.result_queue.get_nowait()
-                self._update_drowsy_state(is_drowsy, confidence, class_name, frame)
+                idx, is_drowsy, confidence, class_name, _ = self.result_queue.get_nowait()
+                self._update_drowsy_state(idx, is_drowsy, confidence, class_name, frame)
         except queue.Empty:
             pass
 
@@ -173,11 +155,10 @@ class DrowsinessDetector:
 
         return frame_display, status
 
-    def _update_drowsy_state(self, is_drowsy, confidence, class_name, frame):
+    def _update_drowsy_state(self, idx, is_drowsy, confidence, class_name, frame):
         """Cập nhật trạng thái buồn ngủ"""
         self.current_class = class_name
         self.current_confidence = confidence
-
         self.drowsy_history.append(int(is_drowsy))
         self.confidence_history.append(confidence)
 
@@ -198,6 +179,8 @@ class DrowsinessDetector:
                 if elapsed >= self.alert_threshold:
                     # Kiểm tra cooldown
                     if current_time - self.last_alert_time > self.alert_cooldown:
+                        self.current_frame_id = idx
+                        self.is_save_img = True
                         self._trigger_alert(frame, drowsy_ratio, avg_conf)
                         self.last_alert_time = current_time
             else:
@@ -207,23 +190,10 @@ class DrowsinessDetector:
 
     def _trigger_alert(self, frame, drowsy_ratio, avg_conf):
         """Kích hoạt cảnh báo"""
-        self.alert_active = True
-
-        image_path = self._save_image(frame)
 
         # Gọi callback nếu có
         if self.callback:
             self.callback(frame.copy(), drowsy_ratio, avg_conf)
-
-        # Lưu vào database
-        self._save_to_db(
-            duration=self.alert_threshold,
-            confirmed=False,  # Sẽ được cập nhật sau khi user xác nhận
-            drowsy_ratio=drowsy_ratio,
-            confidence_avg=avg_conf,
-            image_path=image_path,
-            notes="Alert triggered"
-        )
 
         # Reset trạng thái sau 2 giây
         def reset_alert():
@@ -282,20 +252,15 @@ class DrowsinessDetector:
                        ''', (limit,))
         return cursor.fetchall()
 
-    def update_alert_confirmation(self, timestamp, confirmed, notes=""):
+    def update_alert_confirmation(self, timestamp, confirmed, notes=False):
         """Cập nhật xác nhận cảnh báo"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-                       UPDATE alerts
-                       SET confirmed = ?,
-                           notes     = ?
-                       WHERE timestamp = ?
-                       ''', (confirmed, notes, timestamp))
-        self.conn.commit()
+        drowsy_video_repo.end_drowsy_video(timestamp, confirmed, notes)
 
     def stop(self):
         """Dừng detector"""
         self.running = False
         if self.thread.is_alive():
             self.thread.join(timeout=2)
-        self.conn.close()
+        if self.img_thread.is_alive():
+            self.img_thread.join(timeout=2)
+        # self.conn.close()

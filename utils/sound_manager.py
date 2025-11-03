@@ -3,6 +3,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 import os
 import sys
 import numpy as np
+import core.config as config
 from pathlib import Path
 
 
@@ -23,14 +24,10 @@ class AlertSoundManager(QObject):
         """Tìm hoặc tạo file âm thanh cảnh báo"""
         # Tìm file âm thanh có sẵn
         possible_files = [
-            'assets/alert.mp3',
-            'assets/alert.wav',
+            config.config.get("assets")["audio_alert"],
             'sounds/alert.wav',
             'sounds/alert.mp3',
-            'alert.wav',
-            'alert.mp3',
-            'alarm.wav',
-            'alarm.mp3'
+
         ]
 
         for file_path in possible_files:
