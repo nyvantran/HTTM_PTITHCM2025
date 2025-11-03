@@ -5,6 +5,8 @@ from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont, QColor, QPainter, QPen, QBrush
 import random
 from datetime import datetime, timedelta
+from services.statistics_service import get_daily_drowsy_frequency, get_hourly_drowsy_frequency, \
+    get_daily_detail_statistics
 
 
 class SimpleChartWidget(QWidget):
@@ -94,7 +96,7 @@ class SimpleChartWidget(QWidget):
 
 
 class StatisticsView(QWidget):
-    """View thống kê - KHÔNG dùng matplotlib"""
+    """View thống kê - Hiển thị biểu đồ và bảng thống kê lịch sử buồn ngủ"""
 
     back_signal = pyqtSignal()
 
@@ -346,20 +348,13 @@ class StatisticsView(QWidget):
             else:
                 days = 180
 
-            # Generate dummy stats
-            total_alerts = random.randint(days * 2, days * 5)
-            confirmed = random.randint(int(total_alerts * 0.4), int(total_alerts * 0.8))
-            confirm_rate = (confirmed / total_alerts * 100) if total_alerts > 0 else 0
-
-            total_hours = random.randint(days * 2, days * 8)
-            total_minutes = random.randint(0, 59)
-            avg_minutes = random.randint(15, 120)
-
-            # Update cards
-            self.total_alerts_label.setText(str(total_alerts))
-            self.confirm_rate_label.setText(f"{confirm_rate:.1f}%")
-            self.total_time_label.setText(f"{total_hours}h {total_minutes}m")
-            self.avg_time_label.setText(f"{avg_minutes}p")
+            # load data from service (replace with real calls)
+            user_id = self.current_user["id"] if self.current_user else 0
+            daily_stats = get_daily_drowsy_frequency(user_id, days=14)
+            detail = get_daily_detail_statistics(user_id, days=14)
+            hourly_stats = get_hourly_drowsy_frequency(user_id)
+            print("User ID:", user_id)
+            print("Dữ liệu thống kê:", daily_stats, detail, hourly_stats)
 
             # Update charts
             self.update_charts(days)
