@@ -69,10 +69,11 @@ class DrowsinessDetector:
             if self.is_save_img:
                 timestamp = self.current_frame_id
                 last_id = self.last_frame_id
-                os.makedirs(f"{self.drowsy_path}/drowsy_{timestamp}", exist_ok=True)
+                video_frame_id = f"{self.drowsy_path}/drowsy_{timestamp}_sessionID={self.session_id}"
+                os.makedirs(video_frame_id, exist_ok=True)
                 drowsyVideoID = drowsy_video_repo.create_drowsy_video(self.session_id, last_id, timestamp)
                 for i, (idx, _, confidence, class_name, frame) in enumerate(list(self.frame_queue.queue.copy())):
-                    url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
+                    url_img = f"{video_frame_id}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
                     cv2.imwrite(url_img, frame)
                     frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
                 self.is_save_img = False
