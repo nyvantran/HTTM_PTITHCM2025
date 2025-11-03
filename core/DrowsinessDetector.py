@@ -261,4 +261,3 @@ class DrowsinessDetector:
             self.thread.join(timeout=2)
         if self.img_thread.is_alive():
             self.img_thread.join(timeout=2)
-        self.conn.close()

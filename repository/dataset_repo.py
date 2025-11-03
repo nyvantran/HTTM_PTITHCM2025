@@ -36,3 +36,17 @@ def count_dataset_frames(dataset_id: int):
     with get_connection() as conn:
         cursor = conn.execute("SELECT COUNT(*) FROM Frame WHERE datasetID = ?", (dataset_id,))
         return cursor.fetchone()[0]
+
+def get_dataset_limit(dataset_id: int):
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT frameLimit FROM Dataset WHERE ID = ?", (dataset_id,))
+        row = cursor.fetchone()
+        return row["frameLimit"] if row else None
+
+def is_dataset_full(dataset_id: int):
+    """Kiểm tra dataset có đầy chưa."""
+    limit = get_dataset_limit(dataset_id)
+    if not limit:
+        return False
+    count = count_dataset_frames(dataset_id)
+    return count >= limit
