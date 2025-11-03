@@ -150,7 +150,7 @@ class StatisticsView(QWidget):
         self.time_filter.addItems(['7 ngày qua', '30 ngày qua', '3 tháng qua', 'Tất cả'])
         self.time_filter.setMinimumWidth(120)
         self.time_filter.setMaximumHeight(30)
-        self.time_filter.currentIndexChanged.connect(self.load_dummy_data)
+        self.time_filter.currentIndexChanged.connect(self.load_data)
 
         back_button = QPushButton("← Quay lại")
         back_button.setMaximumHeight(30)
@@ -335,7 +335,7 @@ class StatisticsView(QWidget):
         group.setLayout(layout)
         return group
 
-    def load_dummy_data(self):
+    def load_data(self):
         """Tải dữ liệu giả lập"""
         try:
             time_filter = self.time_filter.currentText()
@@ -350,52 +350,52 @@ class StatisticsView(QWidget):
 
             # load data from service (replace with real calls)
             user_id = self.current_user["id"] if self.current_user else 0
-            daily_stats = get_daily_drowsy_frequency(user_id, days=14)
-            detail = get_daily_detail_statistics(user_id, days=14)
+            daily_stats = get_daily_drowsy_frequency(user_id, days=days)
+            detail = get_daily_detail_statistics(user_id, days=days)
             hourly_stats = get_hourly_drowsy_frequency(user_id)
-            print("User ID:", user_id)
-            print("Dữ liệu thống kê:", daily_stats, detail, hourly_stats)
-
+            print(daily_stats)
+            print(hourly_stats)
             # Update charts
-            self.update_charts(days)
+            self.update_charts((daily_stats, hourly_stats))
 
             # Update table
-            self.update_detail_table(days)
+            self.update_detail_table(detail)
 
         except Exception as e:
             print(f"⚠️ Lỗi load data: {e}")
 
-    def update_charts(self, days):
+    def update_charts(self, datas):
         """Cập nhật biểu đồ"""
+        data1, data2 = datas
+
+        fomat_date = lambda x: datetime.strptime(x, "%Y-%m-%d").strftime("%d/%m")
+        fomat_time = lambda x: datetime.strptime(x, "%Y-%m-%d %H:%M").strftime("%H:%M")
         try:
             # Chart 1: Theo ngày
-            num_days = min(days, 14)
-            dates = [(datetime.now() - timedelta(days=i)).strftime('%d/%m')
-                     for i in range(num_days - 1, -1, -1)]
-            alerts = [random.randint(0, 10) for _ in range(num_days)]
+            dates = [fomat_date(data["date"]) for data in data1]
+            alerts = [data["count"] for data in data1]
 
             self.chart1.set_data(dates, alerts)
 
             # Chart 2: Theo giờ
-            hours = [f"{h:02d}" for h in range(0, 24, 2)]
-            counts = [random.randint(0, 12) for _ in range(12)]
+            hours = [fomat_time(data["hour"]) for data in data2]
+            counts = [data["count"] for data in data2]
 
             self.chart2.set_data(hours, counts)
 
         except Exception as e:
             print(f"⚠️ Lỗi update charts: {e}")
 
-    def update_detail_table(self, days):
+    def update_detail_table(self, datas):
         """Cập nhật bảng chi tiết"""
         try:
             self.detail_table.setRowCount(0)
-
-            for i in range(min(days, 30)):
-                date = (datetime.now() - timedelta(days=i)).strftime('%d/%m/%Y')
-                alerts = random.randint(0, 10)
-                confirmed = random.randint(0, alerts)
-                hours = random.randint(0, 8)
-                minutes = random.randint(0, 59)
+            for data in datas:
+                date = data['date']
+                alerts = data['alert_count']
+                confirmed = data['confirmed_count']
+                total_minutes = data['driving_time']
+                hours, minutes = 23, 59
 
                 row = self.detail_table.rowCount()
                 self.detail_table.insertRow(row)
@@ -421,6 +421,7 @@ class StatisticsView(QWidget):
                 time_item.setTextAlignment(Qt.AlignCenter)
                 self.detail_table.setItem(row, 3, time_item)
 
+
         except Exception as e:
             print(f"⚠️ Lỗi update table: {e}")
 
@@ -428,6 +429,6 @@ class StatisticsView(QWidget):
         """Set user và load data"""
         try:
             self.current_user = user_info
-            self.load_dummy_data()
+            self.load_data()
         except Exception as e:
             print(f"⚠️ Lỗi set user: {e}")

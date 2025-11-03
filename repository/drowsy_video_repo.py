@@ -45,7 +45,7 @@ def update_user_choice_by_start_time(start_time: str, user_choice: bool):
             cursor.execute("""
                 UPDATE DrowsyVideo
                 SET userChoiceLabel = ?
-                WHERE startTime = ?
+                WHERE endTime = ?
             """, (user_choice, start_time))
             conn.commit()
 
