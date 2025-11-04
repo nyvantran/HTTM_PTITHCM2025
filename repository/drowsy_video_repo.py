@@ -45,7 +45,11 @@ def update_user_choice_by_start_time(end_time: str, user_choice: bool):
                 UPDATE DrowsyVideo
                 SET userChoiceLabel = ?
                 WHERE endTime = ?
+<<<<<<< HEAD
             """, (user_choice, end_time))
+=======
+            """, (user_choice, start_time))
+>>>>>>> 857a7911a22c9e34d9c4a20ad1864356a01210f6
             conn.commit()
 
             if cursor.rowcount == 0:
