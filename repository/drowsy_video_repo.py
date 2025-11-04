@@ -82,4 +82,57 @@ def get_drowsy_video_by_start_time(start_time: str):
             WHERE startTime = ?
         """, (start_time,))
         return cursor.fetchone()
+    
+def get_unlabeled_drowsy_videos_by_user(user_id: int):
+    """
+    Lấy danh sách các video (DrowsyVideo) của người dùng 
+    mà chưa được gán nhãn (userChoiceLabel IS NULL).
+    
+    Args:
+        user_id (int): ID của người dùng.
+    
+    Returns:
+        List[dict]: danh sách video chưa gán nhãn, mỗi phần tử có dạng:
+            {
+                "id": int,
+                "session_id": int,
+                "start_time": str,
+                "end_time": str
+            }
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    DrowsyVideo.ID,
+                    DrowsyVideo.sessionID,
+                    DrowsyVideo.startTime,
+                    DrowsyVideo.endTime
+                FROM DrowsyVideo
+                JOIN Session ON DrowsyVideo.sessionID = Session.ID
+                WHERE Session.userID = ?
+                  AND DrowsyVideo.userChoiceLabel IS NULL
+                ORDER BY DrowsyVideo.startTime DESC
+            """, (user_id,))
+            
+            rows = cursor.fetchall()
+
+            results = [
+                {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "start_time": row[2],
+                    "end_time": row[3]
+                }
+                for row in rows
+            ]
+            return results
+
+    except sqlite3.Error as e:
+        print(f"❌ Database error in get_unlabeled_drowsy_videos_by_user: {e}")
+        return []
+    except Exception as e:
+        print(f"⚠️ Unexpected error: {e}")
+        return []
 

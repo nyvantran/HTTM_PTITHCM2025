@@ -65,49 +65,41 @@ def get_daily_detail_statistics(user_id: int, days: int = 7):
     Trả về thống kê chi tiết theo ngày:
       - Số video cảnh báo (model detect)
       - Số video người dùng xác nhận (bất kỳ label != NULL)
-      - Tổng thời gian lái trong ngày
+      - Tổng thời gian lái trong ngày (cộng dồn tất cả session)
     """
     with get_connection() as conn:
         cursor = conn.execute("""
             SELECT 
-                SUBSTR(DrowsyVideo.startTime, 1, 8) AS raw_date,
+                DATE(Session.startTime) AS date,
                 COUNT(DrowsyVideo.ID) AS alert_count,
                 SUM(CASE WHEN DrowsyVideo.userChoiceLabel IS NOT NULL THEN 1 ELSE 0 END) AS confirmed_count,
-                MIN(Session.startTime) AS session_start,
-                MAX(Session.endTime) AS session_end
+                SUM(
+                    CASE 
+                        WHEN Session.endTime IS NOT NULL 
+                        THEN (julianday(Session.endTime) - julianday(Session.startTime)) * 24 * 60 * 60
+                        ELSE 0 
+                    END
+                ) AS total_seconds
             FROM DrowsyVideo
             JOIN Session ON DrowsyVideo.sessionID = Session.ID
             WHERE Session.userID = ?
-              AND DrowsyVideo.startTime >= strftime('%Y%m%d_%H%M%S', datetime('now', ?))
-            GROUP BY raw_date
-            ORDER BY raw_date DESC
+              AND Session.startTime >= datetime('now', ?)
+            GROUP BY DATE(Session.startTime)
+            ORDER BY date DESC
         """, (user_id, f'-{days} days'))
 
         rows = cursor.fetchall()
 
         results = []
-        for raw_date, alert_count, confirmed_count, start, end in rows:
-            # format ngày: 20251027 → 27/10/2025
-            date_fmt = f"{raw_date[6:8]}/{raw_date[4:6]}/{raw_date[:4]}"
-
-            # Tính tổng thời gian lái xe (end - start)
-            drive_time = "--"
-            if start and end:
-                try:
-                    s = datetime.strptime(start, "%Y%m%d_%H%M%S")
-                    e = datetime.strptime(end, "%Y%m%d_%H%M%S")
-                    delta = e - s
-                    hours, remainder = divmod(delta.seconds, 3600)
-                    minutes = remainder // 60
-                    drive_time = f"{hours}h {minutes}m"
-                except Exception:
-                    pass
+        for date, alert_count, confirmed_count, total_seconds in rows:
+            hours, remainder = divmod(int(total_seconds or 0), 3600)
+            minutes = remainder // 60
 
             results.append({
-                "date": date_fmt,
+                "date": datetime.strptime(date, "%Y-%m-%d").strftime("%d/%m/%Y"),
                 "alert_count": alert_count or 0,
                 "confirmed_count": confirmed_count or 0,
-                "driving_time": drive_time
+                "driving_time": f"{hours}h {minutes}m" if total_seconds else "--"
             })
 
         return results

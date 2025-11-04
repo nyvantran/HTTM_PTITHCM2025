@@ -50,3 +50,26 @@ def is_dataset_full(dataset_id: int):
         return False
     count = count_dataset_frames(dataset_id)
     return count >= limit
+
+def get_oldest_full_unused_dataset(user_id: int):
+    """
+    Lấy dataset duy nhất thỏa:
+      - userID khớp
+      - status = 'SPENDING'
+      - dataset đã đầy (frame_count >= frameLimit)
+    Ưu tiên dataset có createdAt nhỏ nhất.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT 
+                D.ID, D.userID, D.frameLimit, D.status, D.createdAt,
+                COUNT(F.ID) AS frame_count
+            FROM Dataset D
+            LEFT JOIN Frame F ON F.datasetID = D.ID
+            WHERE D.userID = ? AND D.status = 'SPENDING'
+            GROUP BY D.ID
+            HAVING frame_count >= D.frameLimit
+            ORDER BY D.createdAt ASC
+            LIMIT 1
+        """, (user_id,))
+        return cursor.fetchone()

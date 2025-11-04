@@ -53,3 +53,16 @@ def insert_frame_to_dataset(frame, dataset_id: int):
             dataset_id
         ))
         conn.commit()
+
+def get_frames_by_dataset(dataset_id: int):
+    """
+    Lấy toàn bộ frame thuộc dataset.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT ID, drowsyVideoID, confidenceScore, modelPrediction, imageURL, createdAt
+            FROM Frame
+            WHERE datasetID = ?
+            ORDER BY createdAt ASC
+        """, (dataset_id,))
+        return cursor.fetchall()
