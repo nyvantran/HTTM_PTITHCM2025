@@ -2,19 +2,20 @@ from db.db import get_connection
 from datetime import datetime
 import sqlite3
 
+
 def insert_drowsy_video(session_id: int, start_time: datetime, end_time: datetime = None):
     # Định dạng ngày tháng là YYYY-MM-DDTHH:MM:SS
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO DrowsyVideo (sessionID, startTime, endTime, userChoiceLabel)
-                VALUES (?, ?, ?, NULL)
-            """, (
-                session_id,
-                start_time.isoformat(),
-                end_time.isoformat() if end_time else None
-            ))
+                           INSERT INTO DrowsyVideo (sessionID, startTime, endTime, userChoiceLabel)
+                           VALUES (?, ?, ?, NULL)
+                           """, (
+                               session_id,
+                               start_time.isoformat(),
+                               end_time.isoformat() if end_time else None
+                           ))
             conn.commit()
             return cursor.lastrowid
 
@@ -30,6 +31,7 @@ def insert_drowsy_video(session_id: int, start_time: datetime, end_time: datetim
             conn.rollback()
         return None
 
+
 def update_user_choice_by_start_time(end_time: str, user_choice: bool):
     """
     Cập nhật userChoiceLabel trong bảng DrowsyVideo dựa vào startTime.
@@ -42,14 +44,11 @@ def update_user_choice_by_start_time(end_time: str, user_choice: bool):
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                UPDATE DrowsyVideo
-                SET userChoiceLabel = ?
-                WHERE endTime = ?
-<<<<<<< HEAD
-            """, (user_choice, end_time))
-=======
-            """, (user_choice, start_time))
->>>>>>> 857a7911a22c9e34d9c4a20ad1864356a01210f6
+                           UPDATE DrowsyVideo
+                           SET userChoiceLabel = ?
+                           WHERE endTime = ?
+                           """, (user_choice, end_time))
+
             conn.commit()
 
             if cursor.rowcount == 0:
@@ -65,6 +64,7 @@ def update_user_choice_by_start_time(end_time: str, user_choice: bool):
             conn.rollback()
         return 0
 
+
 def create_drowsy_video(session_id: int, start_time: datetime, end_time: datetime):
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -74,19 +74,21 @@ def create_drowsy_video(session_id: int, start_time: datetime, end_time: datetim
                        """, (session_id, start_time.format(), end_time))
         conn.commit()
         return cursor.lastrowid
-    
+
+
 def get_drowsy_video_by_start_time(start_time: str):
     """
     Truy vấn video theo startTime (định dạng 'YYYYMMDD_HHMMSS')
     """
     with get_connection() as conn:
         cursor = conn.execute("""
-            SELECT ID, sessionID, startTime, endTime, userChoiceLabel
-            FROM DrowsyVideo
-            WHERE startTime = ?
-        """, (start_time,))
+                              SELECT ID, sessionID, startTime, endTime, userChoiceLabel
+                              FROM DrowsyVideo
+                              WHERE startTime = ?
+                              """, (start_time,))
         return cursor.fetchone()
-    
+
+
 def get_unlabeled_drowsy_videos_by_user(user_id: int):
     """
     Lấy danh sách các video (DrowsyVideo) của người dùng 
@@ -108,18 +110,17 @@ def get_unlabeled_drowsy_videos_by_user(user_id: int):
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT 
-                    DrowsyVideo.ID,
-                    DrowsyVideo.sessionID,
-                    DrowsyVideo.startTime,
-                    DrowsyVideo.endTime
-                FROM DrowsyVideo
-                JOIN Session ON DrowsyVideo.sessionID = Session.ID
-                WHERE Session.userID = ?
-                  AND DrowsyVideo.userChoiceLabel IS NULL
-                ORDER BY DrowsyVideo.startTime DESC
-            """, (user_id,))
-            
+                           SELECT DrowsyVideo.ID,
+                                  DrowsyVideo.sessionID,
+                                  DrowsyVideo.startTime,
+                                  DrowsyVideo.endTime
+                           FROM DrowsyVideo
+                                    JOIN Session ON DrowsyVideo.sessionID = Session.ID
+                           WHERE Session.userID = ?
+                             AND DrowsyVideo.userChoiceLabel IS NULL
+                           ORDER BY DrowsyVideo.startTime DESC
+                           """, (user_id,))
+
             rows = cursor.fetchall()
 
             results = [
@@ -140,3 +141,55 @@ def get_unlabeled_drowsy_videos_by_user(user_id: int):
         print(f"⚠️ Unexpected error: {e}")
         return []
 
+
+def get_all_drowsy_videos_by_user(user_id: int):
+    """
+        Lấy danh sách các video (DrowsyVideo) của người dùng
+
+        Args:
+            user_id (int): ID của người dùng.
+
+        Returns:
+            List[dict]: danh sách video, mỗi phần tử có dạng:
+                {
+                    "id": int,
+                    "session_id": int,
+                    "start_time": str,
+                    "end_time": str
+                }
+        """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT DrowsyVideo.ID,
+                                  DrowsyVideo.sessionID,
+                                  DrowsyVideo.startTime,
+                                  DrowsyVideo.endTime,
+                                  DrowsyVideo.userChoiceLabel
+                           FROM DrowsyVideo
+                                    JOIN Session ON DrowsyVideo.sessionID = Session.ID
+                           WHERE Session.userID = ?
+                           ORDER BY DrowsyVideo.startTime DESC
+                           """, (user_id,))
+
+            rows = cursor.fetchall()
+
+            results = [
+                {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "start_time": row[2],
+                    "end_time": row[3],
+                    "userChoiceLabel": row[4]
+                }
+                for row in rows
+            ]
+            return results
+
+    except sqlite3.Error as e:
+        print(f"❌ Database error in get_unlabeled_drowsy_videos_by_user: {e}")
+        return []
+    except Exception as e:
+        print(f"⚠️ Unexpected error: {e}")
+        return []

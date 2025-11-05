@@ -7,6 +7,8 @@ from PyQt5.QtGui import QFont, QColor, QPixmap
 import random
 from datetime import datetime, timedelta
 
+from repository.drowsy_video_repo import get_all_drowsy_videos_by_user, get_unlabeled_drowsy_videos_by_user
+
 
 class VideoReviewView(QWidget):
     """View xem lại video"""
@@ -16,7 +18,7 @@ class VideoReviewView(QWidget):
     def __init__(self):
         super().__init__()
         self.current_user = None
-        self.dummy_videos = []
+        self.drowsy_videos = []
         self.init_ui()
 
     def init_ui(self):
@@ -135,6 +137,7 @@ class VideoReviewView(QWidget):
             }
         """)
         self.video_frame.setText("📹\n\nChọn video từ danh sách")
+        self.video_frame.show()
 
         # Video info
         info_layout = QHBoxLayout()
@@ -291,8 +294,8 @@ class VideoReviewView(QWidget):
 
         # Table
         self.video_table = QTableWidget()
-        self.video_table.setColumnCount(4)
-        self.video_table.setHorizontalHeaderLabels(['Thời gian', 'Độ dài', 'Conf%', 'Trạng thái'])
+        self.video_table.setColumnCount(3)
+        self.video_table.setHorizontalHeaderLabels(['Thời điểm bắt đầu', "Thời điểm kết thúc", 'Trạng thái'])
 
         self.video_table.setStyleSheet("""
             QTableWidget {
@@ -327,7 +330,7 @@ class VideoReviewView(QWidget):
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        # header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
         self.video_table.itemSelectionChanged.connect(self.on_video_selected)
 
@@ -346,27 +349,23 @@ class VideoReviewView(QWidget):
         """Tải danh sách video giả lập"""
         try:
             self.video_table.setRowCount(0)
-            self.dummy_videos = []
+            self.drowsy_videos = []
 
-            statuses = ['Chưa xác nhận', 'Xác nhận buồn ngủ', 'Từ chối - Tỉnh táo']
-
-            for i in range(25):
-                time_ago = datetime.now() - timedelta(hours=random.randint(1, 240))
-                duration = random.randint(5, 30)
-                confidence = random.uniform(0.65, 0.98)
-                status = random.choice(statuses)
-
+            # statuses = ['Chưa xác nhận', 'Xác nhận buồn ngủ', 'Từ chối - Tỉnh táo']
+            user_id = self.current_user['id'] if self.current_user else 0
+            data_videos = get_all_drowsy_videos_by_user(user_id=user_id)
+            for video in data_videos:
                 video_data = {
-                    'id': i,
-                    'timestamp': time_ago,
-                    'duration': duration,
-                    'confidence': confidence,
-                    'status': status
+                    'id': video['id'],
+                    'start_time': datetime.fromisoformat(video['start_time']),
+                    'end_time': datetime.fromisoformat(video['end_time']),
+                    'status': ('Từ chối - Tỉnh táo' if video['userChoiceLabel'] == 0 else
+                               'Xác nhận buồn ngủ' if video['userChoiceLabel'] == 1 else 'Chưa xác nhận')
                 }
-                self.dummy_videos.append(video_data)
+                self.drowsy_videos.append(video_data)
                 self.add_video_to_table(video_data)
-
-            self.stats_label.setText(f"Tổng: {len(self.dummy_videos)} video")
+            # print(data_videos)
+            self.stats_label.setText(f"Tổng: {len(self.drowsy_videos)} video")
         except Exception as e:
             print(f"⚠️ Lỗi load videos: {e}")
 
@@ -376,29 +375,18 @@ class VideoReviewView(QWidget):
             row = self.video_table.rowCount()
             self.video_table.insertRow(row)
 
-            # Time
-            time_str = video_data['timestamp'].strftime('%d/%m %H:%M')
-            time_item = QTableWidgetItem(time_str)
-            time_item.setFont(QFont('Arial', 8))
-            self.video_table.setItem(row, 0, time_item)
+            # start Time
+            start_time_str = video_data['start_time'].strftime('%d/%m %H:%M:%S')
+            start_time_item = QTableWidgetItem(start_time_str)
+            start_time_item.setFont(QFont('Arial', 8))
+            self.video_table.setItem(row, 0, start_time_item)
 
-            # Duration
-            duration_item = QTableWidgetItem(f"{video_data['duration']}s")
-            duration_item.setFont(QFont('Arial', 8))
-            duration_item.setTextAlignment(Qt.AlignCenter)
-            self.video_table.setItem(row, 1, duration_item)
-
-            # Confidence
-            conf_item = QTableWidgetItem(f"{video_data['confidence'] * 100:.0f}")
-            conf_item.setFont(QFont('Arial', 8, QFont.Bold))
-            if video_data['confidence'] > 0.85:
-                conf_item.setForeground(QColor("#e74c3c"))
-            elif video_data['confidence'] > 0.75:
-                conf_item.setForeground(QColor("#e67e22"))
-            else:
-                conf_item.setForeground(QColor("#f39c12"))
-            conf_item.setTextAlignment(Qt.AlignCenter)
-            self.video_table.setItem(row, 2, conf_item)
+            # end Time
+            end_time_str = video_data['end_time'].strftime('%d/%m %H:%M:%S')
+            end_time_item = QTableWidgetItem(end_time_str)
+            end_time_item.setFont(QFont('Arial', 8))
+            # duration_item.setTextAlignment(Qt.AlignCenter)
+            self.video_table.setItem(row, 1, end_time_item)
 
             # Status
             status_short = video_data['status'].split('-')[0].strip()
@@ -411,7 +399,7 @@ class VideoReviewView(QWidget):
             else:
                 status_item.setForeground(QColor("#27ae60"))
             status_item.setTextAlignment(Qt.AlignCenter)
-            self.video_table.setItem(row, 3, status_item)
+            self.video_table.setItem(row, 2, status_item)
         except Exception as e:
             print(f"⚠️ Lỗi add video to table: {e}")
 
@@ -423,17 +411,18 @@ class VideoReviewView(QWidget):
                 return
 
             row = selected_rows[0].row()
-            if row < len(self.dummy_videos):
-                video_data = self.dummy_videos[row]
-
+            if row < len(self.drowsy_videos):
+                video_data = self.drowsy_videos[row]
+                time_str = video_data["end_time"] - video_data["start_time"]
                 self.video_title_label.setText(
-                    f"Video #{video_data['id']} - {video_data['timestamp'].strftime('%d/%m/%Y %H:%M')}")
-                self.video_time_label.setText(f"00:00 / 00:{video_data['duration']:02d}")
+                    f"Video #{video_data['id']} - {video_data['start_time'].strftime('%d/%m/%Y %H:%M:%S')}")
+                self.video_time_label.setText(
+                    f"00:00 / 00:{time_str.seconds:02d}")
 
                 self.video_frame.setText(
                     f"🎬\n\nVideo #{video_data['id']}\n"
-                    f"{video_data['timestamp'].strftime('%d/%m/%Y %H:%M')}\n\n"
-                    f"Confidence: {video_data['confidence'] * 100:.1f}%"
+                    f"{video_data['start_time'].strftime('%d/%m/%Y %H:%M')}\n\n"
+                    # f"Confidence: {video_data['confidence'] * 100:.1f}%"
                 )
 
                 if 'Chưa' in video_data['status']:

@@ -253,7 +253,7 @@ class DrowsinessDetector:
                        ''', (limit,))
         return cursor.fetchall()
 
-    def update_alert_confirmation(self, timestamp, confirmed, notes=False):
+    def update_alert_confirmation(self, timestamp, confirmed):
         """Cập nhật xác nhận cảnh báo"""
         drowsy_video_repo.update_user_choice_by_start_time(timestamp, confirmed)
 
