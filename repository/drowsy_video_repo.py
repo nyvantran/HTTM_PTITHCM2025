@@ -65,6 +65,39 @@ def update_user_choice_by_start_time(end_time: str, user_choice: bool):
         return 0
 
 
+def update_user_choice_by_id(id: int, user_choice: bool):
+    """
+    Cập nhật userChoiceLabel trong bảng DrowsyVideo dựa vào startTime.
+
+    Args:
+        start_time (str): thời gian kết thúc video, định dạng '%Y%m%d_%H%M%S' (ví dụ '20251022_204652')
+        user_choice (bool): nhãn người dùng xác nhận (True/False)
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           UPDATE DrowsyVideo
+                           SET userChoiceLabel = ?
+                           WHERE ID = ?
+                           """, (user_choice, id))
+
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                print(f"⚠️ Không có bản ghi nào có ID = {id}")
+            else:
+                print(f"✅ Đã cập nhật {cursor.rowcount} bản ghi userChoiceLabel = {user_choice}")
+
+            return cursor.rowcount
+
+    except sqlite3.Error as e:
+        print(f"❌ Lỗi database khi cập nhật userChoiceLabel: {e}")
+        if 'conn' in locals():
+            conn.rollback()
+        return 0
+
+
 def create_drowsy_video(session_id: int, start_time: datetime, end_time: datetime):
     with get_connection() as conn:
         cursor = conn.cursor()

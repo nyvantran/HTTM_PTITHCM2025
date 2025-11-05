@@ -12,6 +12,7 @@ import os
 import repository.drowsy_video_repo as drowsy_video_repo
 import repository.frame_repo as frame_repo
 import core.config as config
+from utils.VideoManager import VideoManager
 
 
 class DrowsinessDetector:
@@ -58,7 +59,8 @@ class DrowsinessDetector:
         self.running = True
         self.thread = threading.Thread(target=self._processing_loop, daemon=True)
         self.thread.start()
-        # Thread lưu ảnh
+        # Thread lưu ảnh video
+        self.video_manager = VideoManager()
         self.img_thread = threading.Thread(target=self._save_img, daemon=True)
         self.img_thread.start()
 
@@ -76,6 +78,7 @@ class DrowsinessDetector:
                     url_img = f"{video_frame_id}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
                     cv2.imwrite(url_img, frame)
                     frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
+                self.video_manager.get_drowsy_video(drowsyVideoID)
                 self.is_save_img = False
 
     def _processing_loop(self):
