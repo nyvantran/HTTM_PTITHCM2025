@@ -3,9 +3,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QHeaderView, QGroupBox, QSlider, QFrame,
                              QComboBox, QTextEdit, QMessageBox)
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
-from PyQt5.QtGui import QFont, QColor, QPixmap
-import random
-from datetime import datetime, timedelta
+from PyQt5.QtGui import QFont, QColor, QPixmap, QImage
+import cv2
+import os
+from datetime import datetime
+from repository.drowsy_video_repo import get_all_drowsy_videos_by_user, update_user_choice_by_id
+from utils.VideoManager import VideoManager
 
 
 class VideoReviewView(QWidget):
@@ -16,7 +19,24 @@ class VideoReviewView(QWidget):
     def __init__(self):
         super().__init__()
         self.current_user = None
-        self.dummy_videos = []
+        self.drowsy_videos = []
+
+        # Video playback
+        self.video_capture = None
+        self.is_playing = False
+        self.current_video_path = None
+        self.current_fps = 30
+        self.playback_speed = 1.0
+        self.total_frames = 0
+        self.current_frame = 0
+
+        # Timer for video playback
+        self.video_timer = QTimer()
+        self.video_timer.timeout.connect(self.update_frame)
+
+        # video manager
+        self.video_manager = VideoManager()
+
         self.init_ui()
 
     def init_ui(self):
@@ -125,6 +145,7 @@ class VideoReviewView(QWidget):
         self.video_frame.setMinimumSize(480, 360)
         self.video_frame.setMaximumSize(640, 480)
         self.video_frame.setAlignment(Qt.AlignCenter)
+        self.video_frame.setScaledContents(True)  # Scale to fit
         self.video_frame.setStyleSheet("""
             QLabel {
                 background-color: #2c3e50;
@@ -155,12 +176,16 @@ class VideoReviewView(QWidget):
         self.progress_slider.setRange(0, 100)
         self.progress_slider.setValue(0)
         self.progress_slider.setMaximumHeight(20)
+        self.progress_slider.sliderMoved.connect(self.seek_video)
+        self.progress_slider.sliderPressed.connect(self.on_slider_pressed)
+        self.progress_slider.sliderReleased.connect(self.on_slider_released)
 
         # Controls
         controls_layout = QHBoxLayout()
 
         self.play_button = QPushButton("▶️ Phát")
         self.play_button.setMaximumHeight(30)
+        self.play_button.setEnabled(False)
         self.play_button.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
@@ -171,10 +196,14 @@ class VideoReviewView(QWidget):
                 font-weight: bold;
                 font-size: 10px;
             }
-            QPushButton:hover {
+            QPushButton:hover:enabled {
                 background-color: #229954;
             }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
         """)
+        self.play_button.clicked.connect(self.toggle_playback)
 
         speed_label = QLabel("Tốc độ:")
         speed_label.setFont(QFont('Arial', 8))
@@ -184,6 +213,7 @@ class VideoReviewView(QWidget):
         self.speed_combo.setCurrentText('1x')
         self.speed_combo.setMaximumWidth(60)
         self.speed_combo.setMaximumHeight(25)
+        self.speed_combo.currentTextChanged.connect(self.change_speed)
 
         controls_layout.addWidget(self.play_button)
         controls_layout.addStretch()
@@ -219,21 +249,21 @@ class VideoReviewView(QWidget):
         status_layout.addWidget(self.review_status)
         status_layout.addStretch()
 
-        # Notes
-        notes_label = QLabel("Ghi chú:")
-        notes_label.setFont(QFont('Arial', 8))
-
-        self.notes_text = QTextEdit()
-        self.notes_text.setMaximumHeight(50)
-        self.notes_text.setPlaceholderText("Nhập ghi chú...")
-        self.notes_text.setStyleSheet("""
-            QTextEdit {
-                border: 1px solid #bdc3c7;
-                border-radius: 3px;
-                padding: 5px;
-                font-size: 8px;
-            }
-        """)
+        # # Notes
+        # notes_label = QLabel("Ghi chú:")
+        # notes_label.setFont(QFont('Arial', 8))
+        #
+        # self.notes_text = QTextEdit()
+        # self.notes_text.setMaximumHeight(50)
+        # self.notes_text.setPlaceholderText("Nhập ghi chú...")
+        # self.notes_text.setStyleSheet("""
+        #     QTextEdit {
+        #         border: 1px solid #bdc3c7;
+        #         border-radius: 3px;
+        #         padding: 5px;
+        #         font-size: 8px;
+        #     }
+        # """)
 
         # Save button
         save_button = QPushButton("💾 Lưu xác nhận")
@@ -256,8 +286,8 @@ class VideoReviewView(QWidget):
 
         review_layout.addWidget(review_title)
         review_layout.addLayout(status_layout)
-        review_layout.addWidget(notes_label)
-        review_layout.addWidget(self.notes_text)
+        # review_layout.addWidget(notes_label)
+        # review_layout.addWidget(self.notes_text)
         review_layout.addWidget(save_button)
 
         # Add to main layout
@@ -291,8 +321,8 @@ class VideoReviewView(QWidget):
 
         # Table
         self.video_table = QTableWidget()
-        self.video_table.setColumnCount(4)
-        self.video_table.setHorizontalHeaderLabels(['Thời gian', 'Độ dài', 'Conf%', 'Trạng thái'])
+        self.video_table.setColumnCount(3)
+        self.video_table.setHorizontalHeaderLabels(['Thời điểm bắt đầu', "Thời điểm kết thúc", 'Trạng thái'])
 
         self.video_table.setStyleSheet("""
             QTableWidget {
@@ -325,9 +355,8 @@ class VideoReviewView(QWidget):
 
         header = self.video_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
         self.video_table.itemSelectionChanged.connect(self.on_video_selected)
 
@@ -342,33 +371,33 @@ class VideoReviewView(QWidget):
         group.setLayout(layout)
         return group
 
-    def load_dummy_videos(self):
-        """Tải danh sách video giả lập"""
+    def load_videos(self):
+        """Tải danh sách video từ database"""
         try:
             self.video_table.setRowCount(0)
-            self.dummy_videos = []
+            self.drowsy_videos = []
 
-            statuses = ['Chưa xác nhận', 'Xác nhận buồn ngủ', 'Từ chối - Tỉnh táo']
+            user_id = self.current_user['id'] if self.current_user else 0
+            data_videos = get_all_drowsy_videos_by_user(user_id=user_id)
 
-            for i in range(25):
-                time_ago = datetime.now() - timedelta(hours=random.randint(1, 240))
-                duration = random.randint(5, 30)
-                confidence = random.uniform(0.65, 0.98)
-                status = random.choice(statuses)
-
+            for video in data_videos:
                 video_data = {
-                    'id': i,
-                    'timestamp': time_ago,
-                    'duration': duration,
-                    'confidence': confidence,
-                    'status': status
+                    'id': video['id'],
+                    'start_time': datetime.fromisoformat(video['start_time']),
+                    'end_time': datetime.fromisoformat(video['end_time']),
+                    'video_path': self.video_manager.get_drowsy_video(video['id']),
+                    # 'video_path': "",
+                    'status': ('Từ chối - Tỉnh táo' if video['userChoiceLabel'] == 0 else
+                               'Đã xác nhận' if video['userChoiceLabel'] == 1 else 'Chưa xác nhận')
                 }
-                self.dummy_videos.append(video_data)
+                self.drowsy_videos.append(video_data)
                 self.add_video_to_table(video_data)
 
-            self.stats_label.setText(f"Tổng: {len(self.dummy_videos)} video")
+            self.stats_label.setText(f"Tổng: {len(self.drowsy_videos)} video")
         except Exception as e:
             print(f"⚠️ Lỗi load videos: {e}")
+            import traceback
+            traceback.print_exc()
 
     def add_video_to_table(self, video_data):
         """Thêm video vào bảng"""
@@ -376,29 +405,17 @@ class VideoReviewView(QWidget):
             row = self.video_table.rowCount()
             self.video_table.insertRow(row)
 
-            # Time
-            time_str = video_data['timestamp'].strftime('%d/%m %H:%M')
-            time_item = QTableWidgetItem(time_str)
-            time_item.setFont(QFont('Arial', 8))
-            self.video_table.setItem(row, 0, time_item)
+            # Start Time
+            start_time_str = video_data['start_time'].strftime('%d/%m %H:%M:%S')
+            start_time_item = QTableWidgetItem(start_time_str)
+            start_time_item.setFont(QFont('Arial', 8))
+            self.video_table.setItem(row, 0, start_time_item)
 
-            # Duration
-            duration_item = QTableWidgetItem(f"{video_data['duration']}s")
-            duration_item.setFont(QFont('Arial', 8))
-            duration_item.setTextAlignment(Qt.AlignCenter)
-            self.video_table.setItem(row, 1, duration_item)
-
-            # Confidence
-            conf_item = QTableWidgetItem(f"{video_data['confidence'] * 100:.0f}")
-            conf_item.setFont(QFont('Arial', 8, QFont.Bold))
-            if video_data['confidence'] > 0.85:
-                conf_item.setForeground(QColor("#e74c3c"))
-            elif video_data['confidence'] > 0.75:
-                conf_item.setForeground(QColor("#e67e22"))
-            else:
-                conf_item.setForeground(QColor("#f39c12"))
-            conf_item.setTextAlignment(Qt.AlignCenter)
-            self.video_table.setItem(row, 2, conf_item)
+            # End Time
+            end_time_str = video_data['end_time'].strftime('%d/%m %H:%M:%S')
+            end_time_item = QTableWidgetItem(end_time_str)
+            end_time_item.setFont(QFont('Arial', 8))
+            self.video_table.setItem(row, 1, end_time_item)
 
             # Status
             status_short = video_data['status'].split('-')[0].strip()
@@ -406,36 +423,56 @@ class VideoReviewView(QWidget):
             status_item.setFont(QFont('Arial', 8))
             if 'Chưa' in video_data['status']:
                 status_item.setForeground(QColor("#95a5a6"))
-            elif 'Xác nhận' in video_data['status']:
+            elif 'Đã xác nhận' in video_data['status']:
                 status_item.setForeground(QColor("#e74c3c"))
             else:
                 status_item.setForeground(QColor("#27ae60"))
             status_item.setTextAlignment(Qt.AlignCenter)
-            self.video_table.setItem(row, 3, status_item)
+            self.video_table.setItem(row, 2, status_item)
         except Exception as e:
             print(f"⚠️ Lỗi add video to table: {e}")
 
     def on_video_selected(self):
         """Khi chọn video"""
         try:
+            # Dừng video hiện tại nếu đang phát
+            if self.is_playing:
+                self.stop_playback()
+
             selected_rows = self.video_table.selectedItems()
             if not selected_rows:
                 return
 
             row = selected_rows[0].row()
-            if row < len(self.dummy_videos):
-                video_data = self.dummy_videos[row]
+            if row < len(self.drowsy_videos):
+                video_data = self.drowsy_videos[row]
 
+                # Lấy đường dẫn video
+                video_path = video_data.get('video_path', '')
+
+                # Update UI
+                time_diff = video_data["end_time"] - video_data["start_time"]
                 self.video_title_label.setText(
-                    f"Video #{video_data['id']} - {video_data['timestamp'].strftime('%d/%m/%Y %H:%M')}")
-                self.video_time_label.setText(f"00:00 / 00:{video_data['duration']:02d}")
+                    f"Video #{video_data['id']} - {video_data['start_time'].strftime('%d/%m/%Y %H:%M:%S')}")
+                self.video_time_label.setText(f"00:00 / {time_diff.seconds // 60:02d}:{time_diff.seconds % 60:02d}")
 
-                self.video_frame.setText(
-                    f"🎬\n\nVideo #{video_data['id']}\n"
-                    f"{video_data['timestamp'].strftime('%d/%m/%Y %H:%M')}\n\n"
-                    f"Confidence: {video_data['confidence'] * 100:.1f}%"
-                )
+                # Load video nếu có đường dẫn
+                if video_path and os.path.exists(video_path):
+                    self.load_video(video_path)
+                    self.play_button.setEnabled(True)
+                    print(f"✅ Đã load video: {video_path}")
+                else:
+                    # Hiển thị placeholder nếu không có video
+                    self.video_frame.setScaledContents(False)
+                    self.video_frame.setText(
+                        f"🎬\n\nVideo #{video_data['id']}\n"
+                        f"{video_data['start_time'].strftime('%d/%m/%Y %H:%M')}\n\n"
+                        f"⚠️ File video không tồn tại\n{video_path}"
+                    )
+                    self.play_button.setEnabled(False)
+                    print(f"⚠️ File không tồn tại: {video_path}")
 
+                # Update review status
                 if 'Chưa' in video_data['status']:
                     self.review_status.setCurrentIndex(0)
                 elif 'Xác nhận' in video_data['status']:
@@ -443,9 +480,239 @@ class VideoReviewView(QWidget):
                 else:
                     self.review_status.setCurrentIndex(2)
 
-                self.notes_text.clear()
+                # self.notes_text.clear()
         except Exception as e:
             print(f"⚠️ Lỗi select video: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def load_video(self, video_path):
+        """Load video file"""
+        try:
+            # Release video cũ nếu có
+            if self.video_capture is not None:
+                self.video_capture.release()
+
+            # Mở video mới
+            self.video_capture = cv2.VideoCapture(video_path)
+
+            if not self.video_capture.isOpened():
+                raise Exception(f"Không thể mở video: {video_path}")
+
+            # Lấy thông tin video
+            self.current_fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+            if self.current_fps == 0:
+                self.current_fps = 30  # Default FPS
+
+            self.total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.current_frame = 0
+            self.current_video_path = video_path
+
+            # Hiển thị frame đầu tiên
+            self.show_frame(0)
+
+            # Reset slider
+            self.progress_slider.setValue(0)
+
+            print(f"✅ Video loaded: FPS={self.current_fps}, Total frames={self.total_frames}")
+
+        except Exception as e:
+            print(f"⚠️ Lỗi load video: {e}")
+            QMessageBox.warning(self, "Lỗi", f"Không thể load video:\n{str(e)}")
+            self.play_button.setEnabled(False)
+
+    def show_frame(self, frame_number):
+        """Hiển thị một frame cụ thể"""
+        try:
+            if self.video_capture is None:
+                return
+
+            # Set vị trí frame
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            ret, frame = self.video_capture.read()
+
+            if ret:
+                # Convert BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                # Convert to QImage
+                h, w, ch = frame_rgb.shape
+                bytes_per_line = ch * w
+                qt_image = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+
+                # Convert to QPixmap and display
+                pixmap = QPixmap.fromImage(qt_image)
+                self.video_frame.setScaledContents(True)
+                self.video_frame.setPixmap(pixmap)
+
+                self.current_frame = frame_number
+
+                # Update time label
+                current_time = frame_number / self.current_fps
+                total_time = self.total_frames / self.current_fps
+                self.video_time_label.setText(
+                    f"{int(current_time // 60):02d}:{int(current_time % 60):02d} / "
+                    f"{int(total_time // 60):02d}:{int(total_time % 60):02d}"
+                )
+
+                # Update slider
+                if self.total_frames > 0:
+                    progress = int((frame_number / self.total_frames) * 100)
+                    self.progress_slider.blockSignals(True)
+                    self.progress_slider.setValue(progress)
+                    self.progress_slider.blockSignals(False)
+
+        except Exception as e:
+            print(f"⚠️ Lỗi show frame: {e}")
+
+    def toggle_playback(self):
+        """Bật/tắt phát video"""
+        if self.is_playing:
+            self.pause_playback()
+        else:
+            self.start_playback()
+
+    def start_playback(self):
+        """Bắt đầu phát video"""
+        if self.video_capture is None:
+            return
+
+        self.is_playing = True
+        self.play_button.setText("⏸️ Tạm dừng")
+        self.play_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 15px;
+                font-weight: bold;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+        """)
+
+        # Tính interval dựa trên FPS và speed
+        interval = int(1000 / (self.current_fps * self.playback_speed))
+        self.video_timer.start(interval)
+
+        print(f"▶️ Phát video: FPS={self.current_fps}, Speed={self.playback_speed}x, Interval={interval}ms")
+
+    def pause_playback(self):
+        """Tạm dừng phát video"""
+        self.is_playing = False
+        self.video_timer.stop()
+        self.play_button.setText("▶️ Phát")
+        self.play_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 15px;
+                font-weight: bold;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        print("⏸️ Tạm dừng video")
+
+    def stop_playback(self):
+        """Dừng phát video"""
+        self.is_playing = False
+        self.video_timer.stop()
+        self.current_frame = 0
+        if self.video_capture:
+            self.show_frame(0)
+
+    def update_frame(self):
+        """Cập nhật frame tiếp theo"""
+        try:
+            if not self.is_playing or self.video_capture is None:
+                return
+
+            # Đọc frame tiếp theo
+            ret, frame = self.video_capture.read()
+
+            if ret:
+                # Convert và hiển thị
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = frame_rgb.shape
+                bytes_per_line = ch * w
+                qt_image = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                pixmap = QPixmap.fromImage(qt_image)
+                self.video_frame.setPixmap(pixmap)
+
+                # Update current frame
+                self.current_frame = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
+
+                # Update time
+                current_time = self.current_frame / self.current_fps
+                total_time = self.total_frames / self.current_fps
+                self.video_time_label.setText(
+                    f"{int(current_time // 60):02d}:{int(current_time % 60):02d} / "
+                    f"{int(total_time // 60):02d}:{int(total_time % 60):02d}"
+                )
+
+                # Update slider
+                if self.total_frames > 0:
+                    progress = int((self.current_frame / self.total_frames) * 100)
+                    self.progress_slider.blockSignals(True)
+                    self.progress_slider.setValue(progress)
+                    self.progress_slider.blockSignals(False)
+            else:
+                # Hết video - quay về đầu
+                print("🔚 Video đã kết thúc")
+                self.pause_playback()
+                self.show_frame(0)
+
+        except Exception as e:
+            print(f"⚠️ Lỗi update frame: {e}")
+            self.pause_playback()
+
+    def seek_video(self, value):
+        """Tua video đến vị trí cụ thể"""
+        try:
+            if self.video_capture is None or self.total_frames == 0:
+                return
+
+            # Tính frame number từ slider value
+            frame_number = int((value / 100) * self.total_frames)
+            self.show_frame(frame_number)
+
+        except Exception as e:
+            print(f"⚠️ Lỗi seek video: {e}")
+
+    def on_slider_pressed(self):
+        """Khi bắt đầu kéo slider"""
+        self.was_playing = self.is_playing
+        if self.is_playing:
+            self.pause_playback()
+
+    def on_slider_released(self):
+        """Khi thả slider"""
+        if self.was_playing:
+            self.start_playback()
+
+    def change_speed(self, speed_text):
+        """Thay đổi tốc độ phát"""
+        try:
+            # Parse speed value
+            self.playback_speed = float(speed_text.replace('x', ''))
+
+            # Update timer interval nếu đang phát
+            if self.is_playing:
+                self.pause_playback()
+                self.start_playback()
+
+            print(f"⚡ Tốc độ: {self.playback_speed}x")
+
+        except Exception as e:
+            print(f"⚠️ Lỗi change speed: {e}")
 
     def save_review(self):
         """Lưu xác nhận"""
@@ -458,17 +725,23 @@ class VideoReviewView(QWidget):
             status = self.review_status.currentText()
 
             row = selected_rows[0].row()
-            status_item = self.video_table.item(row, 3)
+            status_item = self.video_table.item(row, 2)
             status_short = status.split('-')[0].strip()
             status_item.setText(status_short)
-
+            st = ""
             if 'Chưa' in status:
+                st = None
                 status_item.setForeground(QColor("#95a5a6"))
             elif 'Xác nhận' in status:
+                st = True
                 status_item.setForeground(QColor("#e74c3c"))
-            else:
+            elif 'Từ chối' in status:
+                st = False
                 status_item.setForeground(QColor("#27ae60"))
 
+            # TODO: Lưu vào database
+            video_id = self.drowsy_videos[row]['id']
+            update_user_choice_by_id(id=video_id, user_choice=st)
             QMessageBox.information(self, "Thành công", f"Đã lưu!\n\n{status}")
         except Exception as e:
             print(f"⚠️ Lỗi save review: {e}")
@@ -480,7 +753,8 @@ class VideoReviewView(QWidget):
             filter_text = self.status_filter.currentText()
 
             for row in range(self.video_table.rowCount()):
-                status_item = self.video_table.item(row, 3)
+                status_item = self.video_table.item(row, 2)
+                print(status_item.text())
                 if status_item:
                     if filter_text == 'Tất cả':
                         self.video_table.setRowHidden(row, False)
@@ -494,6 +768,18 @@ class VideoReviewView(QWidget):
         """Set user và load data"""
         try:
             self.current_user = user_info
-            self.load_dummy_videos()
+            self.load_videos()
         except Exception as e:
             print(f"⚠️ Lỗi set user: {e}")
+
+    def cleanup(self):
+        """Dọn dẹp resources khi đóng view"""
+        try:
+            if self.is_playing:
+                self.pause_playback()
+            if self.video_capture is not None:
+                self.video_capture.release()
+                self.video_capture = None
+            print("✅ Đã cleanup video resources")
+        except Exception as e:
+            print(f"⚠️ Lỗi cleanup: {e}")

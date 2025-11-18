@@ -1,32 +1,45 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFrame, QTextEdit)
+                             QPushButton, QFrame)
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont, QTextOption
+from PyQt5.QtGui import QFont
 from utils.sound_manager import get_sound_manager
 
 
 class DrowsinessAlertDialog(QDialog):
-    """Dialog cảnh báo buồn ngủ với âm thanh"""
+    """Dialog cảnh báo buồn ngủ - timeout 30s = KHÔNG buồn ngủ"""
 
-    def __init__(self, parent=None, id=None):
+    def __init__(self, parent=None, current_id=None):
         super().__init__(parent)
+        # info
+        self.current_id = current_id
         self.setWindowTitle("⚠️ CẢNH BÁO BUỒN NGỦ")
         self.setModal(True)
-        self.setFixedSize(500, 300)
-        self.crurrent_id = id
+        self.setFixedSize(500, 330)
+
         # Sound manager
         self.sound_manager = None
         self.sound_started = False
+
+        # Countdown timer
+        self.remaining_seconds = 3  # 3 giây
+
+        # Flag để phân biệt timeout vs user action
+        self.is_timeout = False
 
         self.init_ui()
 
         # Phát âm thanh sau khi UI đã sẵn sàng
         QTimer.singleShot(100, self.start_sound)
 
-        # Auto close sau 10 giây
+        # Auto close sau 30 giây
         self.auto_close_timer = QTimer()
         self.auto_close_timer.timeout.connect(self.auto_reject)
-        self.auto_close_timer.start(3000)
+        self.auto_close_timer.start(self.remaining_seconds * 1000)  # 30 giây
+
+        # Countdown timer (cập nhật mỗi giây)
+        self.countdown_timer = QTimer()
+        self.countdown_timer.timeout.connect(self.update_countdown)
+        self.countdown_timer.start(1000)  # 1 giây
 
     def start_sound(self):
         """Bắt đầu phát âm thanh"""
@@ -58,6 +71,34 @@ class DrowsinessAlertDialog(QDialog):
         message_label.setAlignment(Qt.AlignCenter)
         message_label.setFont(QFont('Arial', 13))
         message_label.setStyleSheet("color: #2c3e50;")
+
+        # Countdown label
+        self.countdown_label = QLabel(f"⏱️ Tự động đóng sau: {self.remaining_seconds}s")
+        self.countdown_label.setAlignment(Qt.AlignCenter)
+        self.countdown_label.setFont(QFont('Arial', 10))
+        self.countdown_label.setStyleSheet("""
+            QLabel {
+                color: #e67e22;
+                background-color: #fff3cd;
+                padding: 5px;
+                border-radius: 3px;
+                border: 1px solid #ffc107;
+            }
+        """)
+
+        # Timeout warning
+        self.timeout_warning = QLabel("⚠️ Nếu không phản hồi → Ghi nhận là BỎ QUA")
+        self.timeout_warning.setAlignment(Qt.AlignCenter)
+        self.timeout_warning.setFont(QFont('Arial', 9))
+        self.timeout_warning.setStyleSheet("""
+            QLabel {
+                color: #e74c3c;
+                font-style: italic;
+                background-color: #f8d7da;
+                padding: 3px;
+                border-radius: 3px;
+            }
+        """)
 
         # Sound indicator
         self.sound_label = QLabel("🔊 Âm thanh cảnh báo đang phát...")
@@ -117,6 +158,8 @@ class DrowsinessAlertDialog(QDialog):
         layout.addWidget(warning_label)
         layout.addWidget(title_label)
         layout.addWidget(message_label)
+        layout.addWidget(self.countdown_label)
+        layout.addWidget(self.timeout_warning)
         layout.addWidget(self.sound_label)
         layout.addStretch()
         layout.addLayout(button_layout)
@@ -135,11 +178,33 @@ class DrowsinessAlertDialog(QDialog):
         # Blinking effect
         self.blink_timer = QTimer()
         self.blink_state = True
-        self.blink_timer.timeout.connect(self.blink_sound_label)
+        self.blink_timer.timeout.connect(self.blink_labels)
         self.blink_timer.start(500)
 
-    def blink_sound_label(self):
-        """Nhấp nháy label âm thanh"""
+    def update_countdown(self):
+        """Cập nhật countdown"""
+        self.remaining_seconds -= 1
+        self.countdown_label.setText(f"⏱️ Tự động đóng sau: {self.remaining_seconds}s")
+
+        # Đổi màu khi sắp hết thời gian
+        if self.remaining_seconds <= 10:
+            self.countdown_label.setStyleSheet("""
+                QLabel {
+                    color: #e74c3c;
+                    background-color: #f8d7da;
+                    padding: 5px;
+                    border-radius: 3px;
+                    border: 1px solid #e74c3c;
+                    font-weight: bold;
+                }
+            """)
+
+            # Blink warning nhanh hơn
+            if self.remaining_seconds <= 5:
+                self.blink_timer.setInterval(300)
+
+    def blink_labels(self):
+        """Nhấp nháy các label"""
         if self.blink_state:
             self.sound_label.setStyleSheet("""
                 QLabel {
@@ -150,6 +215,17 @@ class DrowsinessAlertDialog(QDialog):
                     border-radius: 3px;
                 }
             """)
+            if self.remaining_seconds <= 10:
+                self.timeout_warning.setStyleSheet("""
+                    QLabel {
+                        color: #e74c3c;
+                        font-style: italic;
+                        background-color: #f8d7da;
+                        padding: 3px;
+                        border-radius: 3px;
+                        font-weight: bold;
+                    }
+                """)
         else:
             self.sound_label.setStyleSheet("""
                 QLabel {
@@ -160,20 +236,34 @@ class DrowsinessAlertDialog(QDialog):
                     border-radius: 3px;
                 }
             """)
+            if self.remaining_seconds <= 10:
+                self.timeout_warning.setStyleSheet("""
+                    QLabel {
+                        color: #c0392b;
+                        font-style: italic;
+                        background-color: #fadbd8;
+                        padding: 3px;
+                        border-radius: 3px;
+                    }
+                """)
         self.blink_state = not self.blink_state
 
     def accept_and_stop_sound(self):
         """Xác nhận và dừng âm thanh"""
+        self.is_timeout = False  # User chủ động xác nhận
         self.stop_sound()
         self.accept()
 
     def reject_and_stop_sound(self):
         """Từ chối và dừng âm thanh"""
+        self.is_timeout = False  # User chủ động từ chối
         self.stop_sound()
         self.reject()
 
     def auto_reject(self):
-        """Tự động từ chối khi timeout"""
+        """Tự động từ chối khi timeout - ĐÁnh dấu là TIMEOUT"""
+        print("⏱️ Timeout 30s - Tự động ghi nhận là BỎ QUA")
+        self.is_timeout = True  # ĐÁnh dấu là timeout
         self.stop_sound()
         self.reject()
 
@@ -188,6 +278,7 @@ class DrowsinessAlertDialog(QDialog):
 
         try:
             self.auto_close_timer.stop()
+            self.countdown_timer.stop()
             self.blink_timer.stop()
         except:
             pass
@@ -199,13 +290,13 @@ class DrowsinessAlertDialog(QDialog):
 
 
 class RestAlertDialog(QDialog):
-    """Dialog cảnh báo nghỉ ngơi với line spacing tốt hơn"""
+    """Dialog cảnh báo nghỉ ngơi"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🚨 CẢNH BÁO NGHIÊM TRỌNG")
         self.setModal(True)
-        self.setFixedSize(550, 400)  # Tăng chiều cao một chút
+        self.setFixedSize(550, 400)
 
         # Sound manager
         self.sound_manager = None
@@ -242,9 +333,9 @@ class RestAlertDialog(QDialog):
         self.title_label.setFont(QFont('Arial', 22, QFont.Bold))
         self.title_label.setStyleSheet("color: #e74c3c; margin: 5px 0px;")
 
-        # Message container với HTML để kiểm soát line height
+        # Message với line spacing
         message_text = """
-        <div style='text-align: center; line-height: 1.8;'>
+        <div style='text-align: center; line-height: 1.6;'>
             <p style='margin: 8px 0; font-size: 14px; color: #2c3e50;'>
                 <b>Bạn đã xác nhận buồn ngủ 3 lần liên tiếp!</b>
             </p>

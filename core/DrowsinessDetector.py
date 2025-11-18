@@ -12,6 +12,7 @@ import os
 import repository.drowsy_video_repo as drowsy_video_repo
 import repository.frame_repo as frame_repo
 import core.config as config
+from utils.VideoManager import VideoManager
 
 
 class DrowsinessDetector:
@@ -57,7 +58,8 @@ class DrowsinessDetector:
         self.running = True
         self.thread = threading.Thread(target=self._processing_loop, daemon=True) 
         self.thread.start()
-        # Thread lưu ảnh
+        # Thread lưu ảnh video
+        self.video_manager = VideoManager()
         self.img_thread = threading.Thread(target=self._save_img, daemon=True)
         self.img_thread.start()
 
@@ -68,15 +70,15 @@ class DrowsinessDetector:
             if self.is_save_img:
                 timestamp = self.current_frame_id
                 last_id = self.last_frame_id
-                os.makedirs(f"{self.drowsy_path}/drowsy_{timestamp}", exist_ok=True)
+                video_frame_id = f"{self.drowsy_path}/drowsy_{timestamp}_sessionID={self.session_id}"
+                os.makedirs(video_frame_id, exist_ok=True)
                 drowsyVideoID = drowsy_video_repo.create_drowsy_video(self.session_id, last_id, timestamp)
                 
                 for i, (idx, _, confidence, class_name, frame) in enumerate(list(self.frame_queue.queue.copy())):
-                    if confidence > 0.8:
-                        url_img = f"{self.drowsy_path}/drowsy_{timestamp}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
-                        cv2.imwrite(url_img, frame) # Lưu lại frame hình
-                        frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
-                    
+                    url_img = f"{video_frame_id}/frame_idx={idx}_{i}_confidence={confidence}_class={class_name}.jpg"
+                    cv2.imwrite(url_img, frame)
+                    frame_repo.insert_frame(drowsyVideoID, confidence, class_name.lower() == 'drowsy', url_img)
+                self.video_manager.get_drowsy_video(drowsyVideoID)
                 self.is_save_img = False
 
     def _processing_loop(self):
@@ -260,9 +262,9 @@ class DrowsinessDetector:
                        ''', (limit,))
         return cursor.fetchall()
 
-    def update_alert_confirmation(self, timestamp, confirmed, notes=False):
+    def update_alert_confirmation(self, timestamp, confirmed):
         """Cập nhật xác nhận cảnh báo"""
-        drowsy_video_repo.end_drowsy_video(timestamp, confirmed, notes)
+        drowsy_video_repo.update_user_choice_by_start_time(timestamp, confirmed)
 
     def stop(self):
         """Dừng detector"""

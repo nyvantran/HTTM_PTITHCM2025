@@ -471,47 +471,66 @@ class DashboardView(QWidget):
             print(f"Error updating frame: {e}")
 
     def handle_drowsiness_alert(self, drowsy_ratio, confidence):
-        """Xử lý cảnh báo"""
-        dialog = DrowsinessAlertDialog(self, self.detector.current_frame_id)
+        """Xử lý cảnh báo buồn ngủ"""
+        crurent_id = self.detector.current_frame_id
+        dialog = DrowsinessAlertDialog(self, current_id=crurent_id)
         result = dialog.exec_()
 
         current_time = QDateTime.currentDateTime()
         drive_time = self.drive_time_label.text().replace("⏱️ ", "")
 
+        # Lưu timestamp để cập nhật DB sau
         self.current_alert_timestamp = current_time.toString(Qt.ISODate)
 
         if result == DrowsinessAlertDialog.Accepted:
-            self.add_log(current_time.toString("HH:mm:ss"), drive_time, "✅ Buồn ngủ")
+            # User XÁC NHẬN buồn ngủ
+            print("✅ User xác nhận: BUỒN NGỦ")
+            self.add_log(current_time.toString("HH:mm:ss"), drive_time, "✅ Xác nhận buồn ngủ")
+
+            # Cập nhật DB
             if self.detector:
                 try:
                     self.detector.update_alert_confirmation(
-                        dialog.crurrent_id,
+                        dialog.current_id,
                         confirmed=True,
-                        notes="True"
+                        # notes="Người dùng xác nhận buồn ngủ"
                     )
                 except:
                     pass
 
+            # Đếm số lần buồn ngủ
             if self.last_drowsiness_time is None or \
                     self.last_drowsiness_time.secsTo(current_time) > self.drowsiness_window:
                 self.drowsiness_count = 1
             else:
                 self.drowsiness_count += 1
+
             self.last_drowsiness_time = current_time
             self.update_alert_count()
+
+            # Kiểm tra cần nghỉ ngơi
             if self.drowsiness_count >= 3:
                 self.show_rest_alert()
+
         else:
-            self.add_log(current_time.toString("HH:mm:ss"), drive_time, "❌ Tỉnh táo")
-            if self.detector:
-                try:
-                    self.detector.update_alert_confirmation(
-                        self=dialog.current_id,
-                        confirmed=False,
-                        notes="Flase"
-                    )
-                except:
-                    pass
+            if hasattr(dialog, 'is_timeout') and dialog.is_timeout:
+                # TIMEOUT - Bỏ qua
+                print("⏱️ Timeout: BỎ QUA cảnh báo")
+                self.add_log(current_time.toString("HH:mm:ss"), drive_time, "⏭️ Bỏ qua (timeout)")
+
+            else:
+                # User chủ động TỪ CHỐI
+                print("❌ User từ chối: TỈNH TÁAO")
+                self.add_log(current_time.toString("HH:mm:ss"), drive_time, "❌ Từ chối - Tỉnh táo")
+
+                if self.detector:
+                    try:
+                        self.detector.update_alert_confirmation(
+                            dialog.current_id,
+                            confirmed=False,
+                        )
+                    except:
+                        pass
 
     def show_rest_alert(self):
         dialog = RestAlertDialog(self)
@@ -547,25 +566,47 @@ class DashboardView(QWidget):
             self.drive_time_label.setText(f"⏱️ {hours:02d}:{minutes:02d}:{seconds:02d}")
 
     def add_log(self, time, drive_time, status):
+        """Thêm log vào bảng"""
         row = self.log_table.rowCount()
         self.log_table.insertRow(row)
+
         time_item = QTableWidgetItem(time)
         time_item.setFont(QFont('Arial', 9))
         self.log_table.setItem(row, 0, time_item)
+
         drive_item = QTableWidgetItem(drive_time)
         drive_item.setFont(QFont('Arial', 9))
         self.log_table.setItem(row, 1, drive_item)
+
         status_item = QTableWidgetItem(status)
         status_item.setFont(QFont('Arial', 9))
-        if "Buồn ngủ" in status or "✅" in status:
+
+        # Phân loại màu sắc
+        if "Xác nhận buồn ngủ" in status or "Buồn ngủ" in status or "✅" in status:
+            # Xác nhận buồn ngủ - Cam đậm
             status_item.setForeground(QColor("#e67e22"))
-        elif "Tỉnh táo" in status or "❌" in status:
+            font = status_item.font()
+            font.setBold(True)
+            status_item.setFont(font)
+        elif "Từ chối" in status or "Tỉnh táo" in status or "❌" in status:
+            # Từ chối chủ động - Xanh lá
             status_item.setForeground(QColor("#27ae60"))
-        elif "NGHỈ" in status or "🛑" in status:
+        elif "Bỏ qua" in status or "⏭️" in status or "timeout" in status.lower():
+            # Bỏ qua (timeout) - Xám
+            status_item.setForeground(QColor("#95a5a6"))
+            font = status_item.font()
+            font.setItalic(True)
+            status_item.setFont(font)
+        elif "NGHỈ" in status or "DỪNG" in status or "🛑" in status:
+            # Nghỉ ngơi - Đỏ đậm
             status_item.setForeground(QColor("#e74c3c"))
             font = status_item.font()
             font.setBold(True)
             status_item.setFont(font)
+        elif "BỎ QUA CẢNH BÁO" in status or "⚠️" in status:
+            # Bỏ qua cảnh báo nghỉ - Cam
+            status_item.setForeground(QColor("#f39c12"))
+
         self.log_table.setItem(row, 2, status_item)
         self.log_table.scrollToBottom()
 
