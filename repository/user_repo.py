@@ -5,6 +5,21 @@ import hashlib
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+# repository/user_repo.py
+from db.db import get_connection
+
+def get_user_by_id(user_id: int):
+    with get_connection() as conn:
+        cur = conn.execute("""
+            SELECT ID as id, userName, email, createdAt, isActive
+            FROM User
+            WHERE ID = ?
+        """, (user_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(row) 
+
 def username_exists(username: str) -> bool:
     with get_connection() as conn:
         cur = conn.execute("SELECT 1 FROM User WHERE userName = ?", (username,))
