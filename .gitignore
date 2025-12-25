@@ -8,3 +8,4 @@
 /services/__pycache__
 app.db
 .vscode
+/__pycache__
