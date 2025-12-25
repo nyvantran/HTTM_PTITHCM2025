@@ -31,7 +31,7 @@ class MainWindow(QMainWindow):
 
         # Database
         self.current_user = None
-
+    
         # Stacked widget
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
@@ -243,7 +243,6 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
 
 if __name__ == '__main__':
     main()

@@ -1,232 +1,91 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QMessageBox, QFrame)
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QFont, QCursor
-from services.user_service import UserService
-from views.Dialogs import WaitingDialog
-import time
-class LoginView(QWidget):
-    """View đăng nhập"""
+# import os
+# from services.user_service import UserService
+# import shutil
 
-    # Signal phát ra khi đăng nhập thành công
-    login_success = pyqtSignal(dict)  # Truyền user_info
-    register_clicked = pyqtSignal()
+# def clear_folder_fast(path):
+#     if os.path.exists(path):
+#         shutil.rmtree(path)  # Xóa sạch thư mục và mọi thứ bên trong
+#     os.makedirs(path)        # Tạo lại thư mục trống
 
-    def __init__(self):
-        super().__init__()
-        self.user_service = UserService()
-        self.init_ui()
+# # Đường dẫn cho tập train
+# tmp_dir_dataset_Drowsy = r"D:\ptithcm\HTTM\HTTM_PTITHCM2025\tmp_dataset\train\Drowsy"
+# tmp_dir_dataset_Natural = r"D:\ptithcm\HTTM\HTTM_PTITHCM2025\tmp_dataset\train\Natural"
+# # Đường dẫn cho tập test
+# tmp_dir_dataset_Drowsy_test = r"D:\ptithcm\HTTM\HTTM_PTITHCM2025\tmp_dataset\test\Drowsy"
+# tmp_dir_dataset_Natural_test = r"D:\ptithcm\HTTM\HTTM_PTITHCM2025\tmp_dataset\test\Natural"
 
-    def init_ui(self):
-        """Khởi tạo giao diện"""
-        layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignCenter)
+# # Xóa sạch sẽ folder trước khi training
+# clear_folder_fast(tmp_dir_dataset_Drowsy)
+# clear_folder_fast(tmp_dir_dataset_Natural)
+# clear_folder_fast(tmp_dir_dataset_Drowsy_test)
+# clear_folder_fast(tmp_dir_dataset_Natural_test)
 
-        # Frame chứa form đăng nhập
-        login_frame = QFrame()
-        login_frame.setMaximumWidth(500)
-        login_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-
-        form_layout = QVBoxLayout(login_frame)
-
-        # Logo/Tiêu đề
-        title_label = QLabel("🚗 HỆ THỐNG CẢNH BÁO")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont('Arial', 24, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
-        # Tạo thẻ trạng thái
-        self.status_label = QLabel("Sẵn sàng")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #7f8c8d; 
-                font-size: 14px; 
-                background-color: #ecf0f1;
-                border-radius: 5px;
-                padding: 5px;
-            }
-        """)
-        subtitle_label = QLabel("Giám sát buồn ngủ khi lái xe")
-        subtitle_label.setAlignment(Qt.AlignCenter)
-        subtitle_label.setFont(QFont('Arial', 12))
-        subtitle_label.setStyleSheet("color: #7f8c8d; margin-bottom: 30px;")
-
-        # Username field
-        username_label = QLabel("Tên đăng nhập:")
-        username_label.setFont(QFont('Arial', 10))
-        self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("Nhập tên đăng nhập")
-        self.username_input.setMinimumHeight(40)
-        self.username_input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #bdc3c7;
-                border-radius: 5px;
-                padding: 5px 10px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 2px solid #3498db;
-            }
-        """)
-
-        # Password field
-        password_label = QLabel("Mật khẩu:")
-        password_label.setFont(QFont('Arial', 10))
-        self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Nhập mật khẩu")
-        self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setMinimumHeight(40)
-        self.password_input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #bdc3c7;
-                border-radius: 5px;
-                padding: 5px 10px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 2px solid #3498db;
-            }
-        """)
-
-        # Login button
-        self.login_button = QPushButton("Đăng nhập")
-        self.login_button.setMinimumHeight(45)
-        self.login_button.setFont(QFont('Arial', 12, QFont.Bold))
-        self.login_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-            QPushButton:pressed {
-                background-color: #21618c;
-            }
-        """)
-        self.login_button.clicked.connect(self.handle_login)
-
-        # Register link
-        register_layout = QHBoxLayout()
-        register_text = QLabel("Chưa có tài khoản?")
-        register_text.setFont(QFont('Arial', 10))
-        register_text.setStyleSheet("color: #7f8c8d;")
-
-        self.register_link = QLabel('<a href="#" style="color: #3498db; text-decoration: none;">Đăng ký ngay</a>')
-        self.register_link.setFont(QFont('Arial', 10, QFont.Bold))
-        self.register_link.setCursor(QCursor(Qt.PointingHandCursor))
-        self.register_link.linkActivated.connect(self.handle_register_click)
-
-        register_layout.addStretch()
-        register_layout.addWidget(register_text)
-        register_layout.addWidget(self.register_link)
-        register_layout.addStretch()
-
-        # Thêm các widget vào layout
-        form_layout.addWidget(title_label)
-        form_layout.addWidget(subtitle_label)
-        form_layout.addSpacing(20)
-        form_layout.addWidget(username_label)
-        form_layout.addWidget(self.username_input)
-        form_layout.addSpacing(15)
-        form_layout.addWidget(password_label)
-        form_layout.addWidget(self.password_input)
-        form_layout.addSpacing(25)
-        form_layout.addWidget(self.login_button)
-        form_layout.addSpacing(15)
-        form_layout.addLayout(register_layout)
-        form_layout.addSpacing(10)
-        # form_layout.addWidget(demo_info)
-
-        layout.addWidget(login_frame)
-
-        # Set background cho toàn bộ view
-        self.setStyleSheet("QWidget { background-color: #ecf0f1; }")
-        self.setLayout(layout)
-
-        # Enter để login
-        self.password_input.returnPressed.connect(self.handle_login)
-
-    def handle_login(self):
-        """Xử lý đăng nhập"""
-        username = self.username_input.text().strip()
-        password = self.password_input.text().strip()
-
-        if not username or not password:
-            QMessageBox.warning(self, "Lỗi", "Vui lòng nhập đầy đủ thông tin!")
-            return
-
-        # Cho phép admin mặc định
-        if username == "admin" and password == "admin":
-            user_info = {
-                'id': 0,
-                'username': 'admin',
-                'full_name': 'Administrator',
-                'email': 'admin@system.local',
-                'phone': '',
-                'created_at': 'Default Account'
-            }
-            # Hiển thị waiting dialog và thực hiện xử lý
-            self.show_waiting_and_process(user_info)
-            return
+# source_training = "D:\\ptithcm\\HTTM\\HTTM_PTITHCM2025\\drowsy_images"
+# def training(userID=1):
+#     path_folderTrainPersonal = ""
+#     Drowsy = []
+#     Natural = []
+#     for folder in os.listdir(source_training):
+#         if not os.path.isfile(os.path.join(source_training, folder)): 
+#             # ta có userID, và folder image session mới nhất của người đó.
+#             path_folderTrainPersonal = os.path.join(source_training, folder)
+#     print(path_folderTrainPersonal)
+#     if path_folderTrainPersonal != "":
+#         for image_path in os.listdir(path_folderTrainPersonal):
+#             if image_path.endswith("Drowsy.jpg"): Drowsy.append(os.path.join(path_folderTrainPersonal, image_path))
+#             if image_path.endswith("Natural.jpg"): Natural.append(os.path.join(path_folderTrainPersonal, image_path))
+#         Drowsy = Drowsy[:min(len(Drowsy), len(Natural))]
+#         Natural = Natural[:min(len(Drowsy), len(Natural))]
+#         print(len(Drowsy), len(Natural))
         
-        try:
-            user_info = self.user_service.login_user(username, password)
-            if user_info:
-                # Hiển thị waiting dialog và thực hiện xử lý
-                self.show_waiting_and_process(user_info)
-                self.clear_form()
-            else:
-                QMessageBox.warning(self, "Lỗi", "Tên đăng nhập hoặc mật khẩu không đúng!")
-        except Exception as e:
-            QMessageBox.critical(self, "CÓ cái lol", str(e))
-
-    def handle_register_click(self):
-        """Xử lý khi click vào link đăng ký"""
-        self.clear_form()
-        self.register_clicked.emit()
-
-    def clear_form(self):
-        """Xóa form sau khi đăng nhập"""
-        self.username_input.clear()
-        self.password_input.clear()
+#     # TẠO TẬP TRAIN
+#     # Đã có 2 danh sách các đường dẫn ảnh 
+#     for img_path_drowsy in Drowsy[0:int(len(Drowsy) * 0.8)]:
+#         fileName = os.path.basename(img_path_drowsy)
+#         dest_path = os.path.join(tmp_dir_dataset_Drowsy, fileName)
+#         shutil.copy(img_path_drowsy, dest_path)
+#     for img_path_natural in Natural[0:int(len(Natural) * 0.8)]:
+#         fileName = os.path.basename(img_path_natural)
+#         dest_path = os.path.join(tmp_dir_dataset_Natural, fileName)
+#         shutil.copy(img_path_natural, dest_path)
+#     # Ta đã có 2 folder
     
-    def process_after_login(self, user_info):
-        import time
-        time.sleep(1)  # Xử lý bước 1
-        time.sleep(1)  # Xử lý bước 2
-        time.sleep(1)  # Xử lý bước 3
+#     # TẠO TẬP TEST
+#     for img_path_drowsy in Drowsy[int(len(Drowsy) * 0.8):]:
+#         fileName = os.path.basename(img_path_drowsy)
+#         dest_path = os.path.join(tmp_dir_dataset_Drowsy_test, fileName)
+#         shutil.copy(img_path_drowsy, dest_path)
+#     for img_path_natural in Natural[int(len(Natural) * 0.8):]:
+#         fileName = os.path.basename(img_path_natural)
+#         dest_path = os.path.join(tmp_dir_dataset_Natural_test, fileName)
+#         shutil.copy(img_path_natural, dest_path)
         
-        print(user_info)
-        threadTraining(user_info["id"])
-        return True
+#     exit(0)
+#     # Tiến hành train model
+#     # kiểm tra model của user đã tồn tại hay chưa, dẫn tới model cũ
+#     from ultralytics import YOLO
+#     path_model_old = fr"D:\ptithcm\HTTM\HTTM_PTITHCM2025\model_{userID}.pt"
+#     if os.path.exists(path_model_old):
+#         model = YOLO(path_model_old)
+#     else:
+#         model = YOLO("yolo11n-cls.pt")
+#     results = model.train(data=r"D:\ptithcm\HTTM\HTTM_PTITHCM2025\tmp_dataset", epochs=10, imgsz=640)
+#     # kết quả sẽ được trả về 1 folder mới.
+#     print(results.save_dir)
     
-    def show_waiting_and_process(self, user_info):
-        """Hiển thị dialog chờ và thực hiện xử lý"""
-        # Tạo waiting dialog với hàm xử lý
-        waiting_dialog = WaitingDialog(
-            parent=self,
-            process_function=self.process_after_login,
-            user_info=user_info
-        )
-        
-        # Hiển thị dialog và chờ xử lý xong
-        if waiting_dialog.exec_() == WaitingDialog.Accepted:
-            # Nếu xử lý thành công, mới emit signal để chuyển sang dashboard
-            self.login_success.emit(user_info)
-        else:
-            # Nếu có lỗi, hiển thị thông báo
-            QMessageBox.warning(self, "Lỗi", "Có lỗi xảy ra trong quá trình xử lý!")
-            
+# if __name__=="__main__":
+#     userID = "1"
+#     import db.db as database 
+#     conn = database.get_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         SELECT * FROM Session
+#         WHERE userID = ?
+#     """, userID)
+#     rows = cursor.fetchall()
+#     # 0 là Session ID, 1 là User ID
+#     rows = sorted([(r[0], r[1]) for r in rows], key=lambda x: x[0], reverse=True)
+#     training(userID=rows[0][0])
 
 import os
 import shutil
@@ -425,14 +284,14 @@ def get_latest_session_id(user_id: str) -> Optional[int]:
         row = cursor.fetchone()
         cursor.close()
         conn.close()
-        print("Lấy session ID cuối thành công")
+        
         return row[0] if row else None
         
     except Exception as e:
         print(f"Lỗi khi truy vấn database: {str(e)}")
         return None
 
-def threadTraining(user_id):
+def main(user_id):
     # Lấy session ID mới nhất (nếu cần)
     session_id = get_latest_session_id(user_id)
     if session_id:

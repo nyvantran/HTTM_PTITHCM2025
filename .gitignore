@@ -9,3 +9,6 @@
 app.db
 .vscode
 /__pycache__
+/tmp_dataset
+/runs
+*.pt
