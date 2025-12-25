@@ -29,8 +29,15 @@ class DrowsinessDetector:
         self.alert_threshold = alert_threshold
         self.callback = callback
 
+<<<<<<< HEAD
         self.drowsy_history = deque(maxlen=int(30 * alert_threshold)) # Lịch sử phát hiện buồn ngủ
         self.confidence_history = deque(maxlen=int(30 * alert_threshold)) # confidence score tương ứng với các lần ghi nhận trong hàng đợi drowsy history phía trên
+=======
+        # Lưu trữ kết quả phân loại gần đây
+        self.drowsy_history = deque(maxlen=int(30 * alert_threshold))
+        self.natural_history = deque(maxlen=int(30 * alert_threshold))
+        self.confidence_history = deque(maxlen=int(30 * alert_threshold))
+>>>>>>> ni
 
         self.alert_active = False
         self.alert_start_time = None
@@ -169,6 +176,7 @@ class DrowsinessDetector:
         self.current_class = class_name
         self.current_confidence = confidence
         self.drowsy_history.append(int(is_drowsy))
+        self.natural_history.append(int(not is_drowsy))
         self.confidence_history.append(confidence)
 
         # Tính tỷ lệ drowsy trong lịch sử gần đây
@@ -196,6 +204,12 @@ class DrowsinessDetector:
                 # Reset nếu không còn buồn ngủ
                 if drowsy_ratio <= 0.5:
                     self.alert_start_time = None
+                natural_ratio = sum(self.natural_history) / len(self.natural_history)
+                avg_conf = np.mean(list(self.confidence_history))
+                if natural_ratio > 0.8 and avg_conf > 0.8:
+                    self.current_frame_id = idx
+                    self.is_save_img = True
+                    print("✅ Người dùng tỉnh táo, đã lưu trạng thái.")
 
     def _trigger_alert(self, frame, drowsy_ratio, avg_conf):
         """Kích hoạt cảnh báo"""
