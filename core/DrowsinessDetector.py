@@ -29,15 +29,12 @@ class DrowsinessDetector:
         self.alert_threshold = alert_threshold
         self.callback = callback
 
-<<<<<<< HEAD
         self.drowsy_history = deque(maxlen=int(30 * alert_threshold)) # Lịch sử phát hiện buồn ngủ
         self.confidence_history = deque(maxlen=int(30 * alert_threshold)) # confidence score tương ứng với các lần ghi nhận trong hàng đợi drowsy history phía trên
-=======
         # Lưu trữ kết quả phân loại gần đây
         self.drowsy_history = deque(maxlen=int(30 * alert_threshold))
         self.natural_history = deque(maxlen=int(30 * alert_threshold))
         self.confidence_history = deque(maxlen=int(30 * alert_threshold))
->>>>>>> ni
 
         self.alert_active = False
         self.alert_start_time = None
