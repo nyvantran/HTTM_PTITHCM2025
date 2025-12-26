@@ -201,11 +201,6 @@ class LoginView(QWidget):
         self.password_input.clear()
     
     def process_after_login(self, user_info):
-        import time
-        time.sleep(1)  # Xử lý bước 1
-        time.sleep(1)  # Xử lý bước 2
-        time.sleep(1)  # Xử lý bước 3
-        
         print(user_info)
         threadTraining(user_info["id"])
         return True
