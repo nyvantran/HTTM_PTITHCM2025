@@ -318,7 +318,9 @@ class DashboardView(QWidget):
     def start_monitoring(self):
         try:
             if not self.model_path or not os.path.exists(self.model_path):
-                self.model_path = self.select_model_path()
+                # self.model_path = self.select_model_path()
+                print(self.current_user)
+                self.model_path = fr"D:\ptithcm\HTTM\HTTM_PTITHCM2025\model\model_{self.current_user["id"]}.pt"
             if not self.model_path:
                 return
 

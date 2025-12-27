@@ -1,6 +1,6 @@
 # services/user_service.py
 import re
-from repository import user_repo
+from repository import user_repo, session_repo
 
 
 class UserService:
@@ -83,4 +83,26 @@ class UserService:
             "email": user.get("email", ""),
             "phone": user.get("phone", ""),
             "created_at": user.get("createdAt", "")
+        }
+
+    def get_user_info_by_session(self, session_id: int):
+        if not session_id:
+            return None
+            
+        user_id = session_repo.get_user_id_by_session_id(session_id)
+        
+        if not user_id:
+            return None
+            
+        user = user_repo.get_user_by_id(user_id)
+        
+        if not user:
+            return None
+
+        return {
+            "id": user["id"],
+            "username": user["userName"],
+            "email": user.get("email", ""),
+            "created_at": user.get("createdAt", ""),
+            "is_active": user.get("isActive", 1)
         }

@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFrame)
-from PyQt5.QtCore import Qt, QTimer
+                             QPushButton, QFrame, QProgressBar)
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 from utils.sound_manager import get_sound_manager
 
@@ -514,4 +514,187 @@ class RestAlertDialog(QDialog):
     def closeEvent(self, event):
         """Xử lý khi đóng dialog"""
         self.stop_sound()
+        event.accept()
+
+
+class ProcessingWorker(QThread):
+    """Worker thread để thực hiện công việc xử lý trong background"""
+    
+    finished = pyqtSignal(bool, str)  # (success, message)
+    progress_update = pyqtSignal(str)  # Cập nhật progress message
+    
+    def __init__(self, process_function=None, *args, **kwargs):
+        super().__init__()
+        self.process_function = process_function
+        self.args = args
+        self.kwargs = kwargs
+    
+    def run(self):
+        """Chạy hàm xử lý"""
+        try:
+            if self.process_function:
+                self.progress_update.emit("Đang khởi tạo...")
+                result = self.process_function(*self.args, **self.kwargs)
+                self.progress_update.emit("Hoàn tất!")
+                self.finished.emit(True, "Thành công")
+            else:
+                # Hàm mặc định (có thể thay đổi)
+                self.progress_update.emit("Đang xử lý dữ liệu...")
+                import time
+                time.sleep(2)  # Giả lập xử lý
+                self.progress_update.emit("Đang tải model...")
+                time.sleep(2)
+                self.progress_update.emit("Hoàn tất!")
+                self.finished.emit(True, "Thành công")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
+class WaitingDialog(QDialog):
+    """Dialog hiển thị khi đang xử lý sau khi đăng nhập"""
+    
+    def __init__(self, parent=None, process_function=None, *args, **kwargs):
+        super().__init__(parent)
+        self.setWindowTitle("⏳ Đang xử lý")
+        self.setModal(True)
+        self.setFixedSize(450, 250)
+        
+        # Không cho phép đóng dialog khi đang xử lý
+        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+        
+        self.process_function = process_function
+        self.process_args = args
+        self.process_kwargs = kwargs
+        self.worker = None
+        
+        self.init_ui()
+        
+        # Bắt đầu xử lý sau khi UI đã sẵn sàng
+        QTimer.singleShot(100, self.start_processing)
+    
+    def init_ui(self):
+        """Khởi tạo giao diện"""
+        layout = QVBoxLayout()
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        
+        # Icon loading
+        icon_label = QLabel("⏳")
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("font-size: 60px;")
+        
+        # Title
+        title_label = QLabel("Đang trong tiến trình training")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setFont(QFont('Arial', 14, QFont.Bold))
+        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
+        
+        # Progress message
+        self.progress_label = QLabel("Đang khởi tạo hệ thống...")
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setFont(QFont('Arial', 11))
+        self.progress_label.setStyleSheet("""
+            QLabel {
+                color: #3498db;
+                background-color: #ebf5fb;
+                padding: 10px;
+                border-radius: 5px;
+                border: 1px solid #3498db;
+            }
+        """)
+        self.progress_label.setWordWrap(True)
+        
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #bdc3c7;
+                border-radius: 5px;
+                text-align: center;
+                height: 25px;
+                background-color: #ecf0f1;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 3px;
+            }
+        """)
+        
+        # Add to layout
+        layout.addWidget(icon_label)
+        layout.addWidget(title_label)
+        layout.addWidget(self.progress_label)
+        layout.addWidget(self.progress_bar)
+        layout.addStretch()
+        
+        self.setLayout(layout)
+        
+        # Style dialog
+        self.setStyleSheet("""
+            QDialog {
+                background-color: white;
+                border: 2px solid #3498db;
+                border-radius: 10px;
+            }
+        """)
+    
+    def start_processing(self):
+        """Bắt đầu xử lý trong worker thread"""
+        self.worker = ProcessingWorker(self.process_function, 
+                                      *self.process_args, 
+                                      **self.process_kwargs)
+        self.worker.progress_update.connect(self.update_progress)
+        self.worker.finished.connect(self.on_processing_finished)
+        self.worker.start()
+    
+    def update_progress(self, message):
+        """Cập nhật thông báo tiến trình"""
+        self.progress_label.setText(message)
+        # Cập nhật lại UI
+        QTimer.singleShot(10, lambda: None)
+    
+    def on_processing_finished(self, success, message):
+        """Xử lý khi hoàn thành"""
+        # Cleanup worker
+        if self.worker:
+            self.worker.wait()
+            self.worker = None
+        
+        if success:
+            self.progress_label.setText("✅ " + message)
+            self.progress_label.setStyleSheet("""
+                QLabel {
+                    color: #27ae60;
+                    background-color: #d5f4e6;
+                    padding: 10px;
+                    border-radius: 5px;
+                    border: 1px solid #27ae60;
+                }
+            """)
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(100)
+            # Đóng dialog sau 0.5 giây
+            QTimer.singleShot(500, self.accept)
+        else:
+            self.progress_label.setText("❌ Lỗi: " + message)
+            self.progress_label.setStyleSheet("""
+                QLabel {
+                    color: #e74c3c;
+                    background-color: #fadbd8;
+                    padding: 10px;
+                    border-radius: 5px;
+                    border: 1px solid #e74c3c;
+                }
+            """)
+            # Cho phép đóng dialog khi có lỗi
+            self.setWindowFlags(Qt.Dialog)
+            QTimer.singleShot(2000, self.reject)
+    
+    def closeEvent(self, event):
+        """Xử lý khi đóng dialog - chỉ cho phép đóng khi đã xong"""
+        if self.worker and self.worker.isRunning():
+            # Nếu đang chạy, hủy worker
+            self.worker.terminate()
+            self.worker.wait()
         event.accept()
