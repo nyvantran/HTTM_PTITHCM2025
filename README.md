@@ -110,7 +110,7 @@ pip install -r requirements.txt
 ### Khởi chạy ứng dụng
 
 ```bash
-python main.py
+python main1.py
 ```
 
 

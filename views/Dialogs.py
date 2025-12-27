@@ -1,45 +1,360 @@
+# dialogs.py - Tích hợp Audio Detection
+
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 from utils.sound_manager import get_sound_manager
 
+import pyaudio
+import torch
+import numpy as np
+from queue import Queue
+from threading import Event
+import torch.nn.functional as F
+import time
+
+# ==================== AUDIO DETECTION COMPONENTS ====================
+
+# Try to import model components
+AUDIO_DETECTION_AVAILABLE = False
+try:
+    from core.model_conformer import ConformerClassifier
+    from core.Util import audio2inputmodel
+
+    AUDIO_DETECTION_AVAILABLE = True
+except ImportError:
+    print("⚠️ Audio detection model not available - running without voice control")
+
+# Global model instance (loaded once)
+_audio_model = None
+_audio_model_loaded = False
+
+
+def get_audio_model():
+    """Get or load the audio detection model (singleton)"""
+    global _audio_model, _audio_model_loaded
+
+    if _audio_model_loaded:
+        return _audio_model
+
+    if not AUDIO_DETECTION_AVAILABLE:
+        _audio_model_loaded = True
+        return None
+
+    try:
+        _audio_model = torch.nn.DataParallel(ConformerClassifier())
+        _audio_model.load_state_dict(torch.load(
+            r"core/lastest_2025-12-25_20-43-56.pt",
+            map_location="cuda"
+        ))
+        _audio_model = _audio_model.to("cuda").eval()
+        _audio_model_loaded = True
+        print("✓ Audio detection model loaded successfully")
+    except Exception as e:
+        print(f"⚠️ Cannot load audio model: {e}")
+        _audio_model = None
+        _audio_model_loaded = True
+
+    return _audio_model
+
+
+class AudioDetectionWorker(QThread):
+    """
+    Qt Worker for audio detection - runs in background thread
+
+    Signals:
+        detection_result: Emits True (label=1, drowsy), False (label=0, alert), or None (timeout/error)
+        prediction_update: Emits (label, confidence, elapsed_time) for UI updates
+    """
+    detection_result = pyqtSignal(object)
+    prediction_update = pyqtSignal(int, float, float)
+
+    def __init__(self, model, sample_rate=44100, chunk_size=1024,
+                 device_index=None, timeout=20, chunk_duration=2.0, overlap=0.75):
+        super().__init__()
+        self.model = model
+        self.sample_rate = sample_rate
+        self.chunk_size = chunk_size
+        self.device_index = device_index
+        self.timeout = timeout
+        self.chunk_samples = int(sample_rate * chunk_duration)
+        self.hop_samples = int(self.chunk_samples * (1 - overlap))
+        self.min_prediction_interval = chunk_duration * (1 - overlap)
+
+        self.is_running = Event()
+        self._stopped_externally = False
+
+    def run(self):
+        """Main detection loop"""
+        if self.model is None:
+            self.detection_result.emit(None)
+            return
+
+        self.is_running.set()
+        self._stopped_externally = False
+
+        p = None
+        stream = None
+
+        try:
+            # Setup audio
+            p = pyaudio.PyAudio()
+            stream = p.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=self.sample_rate,
+                input=True,
+                input_device_index=self.device_index,
+                frames_per_buffer=self.chunk_size
+            )
+            print("🎤 Bắt đầu phát hiện âm thanh...")
+        except Exception as e:
+            print(f"⚠️ Cannot open audio stream: {e}")
+            self.detection_result.emit(None)
+            return
+
+        buffer = []
+        last_prediction_time = time.time()
+        last_prediction_label = -1
+        start_time = time.time()
+        result = None
+
+        try:
+            while self.is_running.is_set():
+                # Read audio
+                try:
+                    data = stream.read(self.chunk_size, exception_on_overflow=False)
+                    audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+                    buffer.extend(audio_data)
+                except Exception as e:
+                    continue
+
+                current_time = time.time()
+                elapsed = current_time - start_time
+
+                # Check timeout
+                if elapsed >= self.timeout:
+                    print(f"⏱️ Audio detection timeout ({self.timeout}s)")
+                    result = None  # Timeout = no definitive result
+                    break
+
+                # Make prediction if we have enough samples
+                if (len(buffer) >= self.chunk_samples and
+                        current_time - last_prediction_time >= self.min_prediction_interval):
+
+                    chunk = np.array(buffer[:self.chunk_samples])
+
+                    try:
+                        label, confidence = self._process_chunk(chunk)
+
+                        self.prediction_update.emit(label, confidence, elapsed)
+                        last_prediction_time = current_time
+
+                        print(f"[{elapsed:.1f}s] Audio prediction: label={label}, confidence={confidence:.4f}")
+
+                        if label == 1:  # Buồn ngủ
+                            if last_prediction_label == 1:
+                                result = True  # 2 consecutive "drowsy" = confirm drowsy
+                                print("✓ Phát hiện 2 lần liên tiếp: BUỒN NGỦ")
+                                break
+                            last_prediction_label = 1
+                        elif label == 0:  # Tỉnh táo
+                            if last_prediction_label == 0:
+                                result = False  # 2 consecutive "alert" = confirm alert
+                                print("✓ Phát hiện 2 lần liên tiếp: TỈNH TÁO")
+                                break
+                            last_prediction_label = 0
+                        else:
+                            # Các label khác (2, 3, ...) không xử lý, reset
+                            last_prediction_label = -1
+
+                    except Exception as e:
+                        print(f"Prediction error: {e}")
+
+                    # Shift buffer
+                    buffer = buffer[self.hop_samples:]
+
+        except Exception as e:
+            print(f"Audio detection error: {e}")
+            result = None
+        finally:
+            if stream:
+                stream.stop_stream()
+                stream.close()
+            if p:
+                p.terminate()
+            print("🎤 Dừng phát hiện âm thanh")
+
+        # Only emit result if not stopped externally
+        if not self._stopped_externally:
+            self.detection_result.emit(result)
+
+    def _process_chunk(self, audio_chunk):
+        """Process audio chunk and return prediction"""
+        waveform = torch.FloatTensor(audio_chunk).unsqueeze(0)
+        aud = audio2inputmodel((waveform, self.sample_rate)).to("cuda")
+
+        with torch.no_grad():
+            output, _ = self.model(aud)
+            probabilities = F.softmax(output, dim=-1)
+            prob = torch.max(probabilities, dim=-1)
+            confidence = prob.values.item()
+            label = prob.indices.item()
+
+        return label, confidence
+
+    def stop(self):
+        """Stop detection"""
+        self._stopped_externally = True
+        self.is_running.clear()
+
+
+# ==================== DIALOG CLASSES ====================
 
 class DrowsinessAlertDialog(QDialog):
-    """Dialog cảnh báo buồn ngủ - timeout 30s = KHÔNG buồn ngủ"""
+    """Dialog cảnh báo buồn ngủ
 
-    def __init__(self, parent=None, current_id=None):
+    Tích hợp audio detection:
+    - Audio label 1 (2 lần liên tiếp) → accept (xác nhận buồn ngủ)
+    - Audio label 0 (2 lần liên tiếp) → reject (tỉnh táo)
+    - Audio timeout → đánh dấu is_timeout = True và reject
+    """
+
+    def __init__(self, parent=None, current_id=None, enable_audio_detection=True):
         super().__init__(parent)
         # info
         self.current_id = current_id
         self.setWindowTitle("⚠️ CẢNH BÁO BUỒN NGỦ")
         self.setModal(True)
-        self.setFixedSize(500, 330)
+        self.setFixedSize(500, 380)
 
         # Sound manager
         self.sound_manager = None
         self.sound_started = False
 
         # Countdown timer
-        self.remaining_seconds = 3  # 3 giây
+        self.remaining_seconds = 3  # 30 giây
 
         # Flag để phân biệt timeout vs user action
         self.is_timeout = False
+
+        # Audio detection
+        self.enable_audio_detection = enable_audio_detection and AUDIO_DETECTION_AVAILABLE
+        self.audio_worker = None
+        self.audio_result_received = False
 
         self.init_ui()
 
         # Phát âm thanh sau khi UI đã sẵn sàng
         QTimer.singleShot(100, self.start_sound)
 
+        # Bắt đầu audio detection
+        if self.enable_audio_detection:
+            QTimer.singleShot(200, self.start_audio_detection)
+
         # Auto close sau 30 giây
         self.auto_close_timer = QTimer()
         self.auto_close_timer.timeout.connect(self.auto_reject)
-        self.auto_close_timer.start(self.remaining_seconds * 1000)  # 30 giây
+        self.auto_close_timer.start(self.remaining_seconds * 1000)
 
         # Countdown timer (cập nhật mỗi giây)
         self.countdown_timer = QTimer()
         self.countdown_timer.timeout.connect(self.update_countdown)
-        self.countdown_timer.start(1000)  # 1 giây
+        self.countdown_timer.start(1000)
+
+    def start_audio_detection(self):
+        """Bắt đầu audio detection"""
+        model = get_audio_model()
+        if model is None:
+            print("⚠️ Audio model not available, using button-only mode")
+            self.audio_status_label.setText("🔇 Điều khiển giọng nói không khả dụng")
+            self.audio_status_label.setStyleSheet("""
+                QLabel {
+                    color: #6c757d;
+                    font-style: italic;
+                    background-color: #e9ecef;
+                    padding: 5px;
+                    border-radius: 3px;
+                }
+            """)
+            return
+
+        self.audio_worker = AudioDetectionWorker(
+            model=model,
+            timeout=25,  # Timeout ngắn hơn dialog timeout
+            chunk_duration=2.0,
+            overlap=0.75
+        )
+        self.audio_worker.detection_result.connect(self.on_audio_result)
+        self.audio_worker.prediction_update.connect(self.on_audio_prediction)
+        self.audio_worker.start()
+
+        self.audio_status_label.setText("🎤 Đang lắng nghe phản hồi bằng giọng nói...")
+
+    def on_audio_result(self, result):
+        """Xử lý kết quả từ audio detection"""
+        if self.audio_result_received:
+            return
+
+        self.audio_result_received = True
+
+        if result is True:
+            # Audio detected drowsy (label 1, 2 consecutive) → ACCEPT
+            print("🎤 Audio: Phát hiện XÁC NHẬN buồn ngủ → Đóng dialog")
+            self.is_timeout = False
+            self.accept_and_stop_sound()
+
+        elif result is False:
+            # Audio detected alert (label 0, 2 consecutive) → REJECT
+            print("🎤 Audio: Phát hiện TỈNH TÁO → Đóng dialog")
+            self.is_timeout = False
+            self.reject_and_stop_sound()
+
+        else:
+            # Audio timeout → đánh dấu timeout và reject
+            print("🎤 Audio: Timeout - Không phát hiện được xác nhận → Ghi nhận TIMEOUT")
+            self.audio_status_label.setText("⏱️ TIMEOUT - Không nhận được phản hồi giọng nói")
+            self.audio_status_label.setStyleSheet("""
+                QLabel {
+                    color: #e74c3c;
+                    font-weight: bold;
+                    background-color: #f8d7da;
+                    padding: 5px;
+                    border-radius: 3px;
+                    border: 1px solid #e74c3c;
+                }
+            """)
+            self.is_timeout = True  # Đánh dấu là TIMEOUT
+            self.stop_sound()
+            self.stop_audio_detection()
+            self.reject()
+
+    def on_audio_prediction(self, label, confidence, elapsed):
+        """Cập nhật UI khi có prediction mới"""
+        if label == 1:
+            label_text = "Buồn ngủ"
+            color = "#e74c3c"
+        elif label == 0:
+            label_text = "Tỉnh táo"
+            color = "#27ae60"
+        else:
+            label_text = f"Khác ({label})"
+            color = "#6c757d"
+
+        self.audio_status_label.setText(
+            f"🎤 [{elapsed:.1f}s] Đang phân tích: {label_text} ({confidence:.1%})"
+        )
+        self.audio_status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                font-weight: bold;
+                background-color: #e3f2fd;
+                padding: 5px;
+                border-radius: 3px;
+                border: 1px solid #90caf9;
+            }}
+        """)
 
     def start_sound(self):
         """Bắt đầu phát âm thanh"""
@@ -53,7 +368,7 @@ class DrowsinessAlertDialog(QDialog):
     def init_ui(self):
         """Khởi tạo giao diện"""
         layout = QVBoxLayout()
-        layout.setSpacing(15)
+        layout.setSpacing(12)
 
         # Warning icon
         warning_label = QLabel("⚠️")
@@ -72,6 +387,21 @@ class DrowsinessAlertDialog(QDialog):
         message_label.setFont(QFont('Arial', 13))
         message_label.setStyleSheet("color: #2c3e50;")
 
+        # Audio status label
+        self.audio_status_label = QLabel("🎤 Đang khởi tạo nhận diện giọng nói...")
+        self.audio_status_label.setAlignment(Qt.AlignCenter)
+        self.audio_status_label.setFont(QFont('Arial', 10))
+        self.audio_status_label.setStyleSheet("""
+            QLabel {
+                color: #0066cc;
+                font-style: italic;
+                background-color: #e3f2fd;
+                padding: 5px;
+                border-radius: 3px;
+                border: 1px solid #90caf9;
+            }
+        """)
+
         # Countdown label
         self.countdown_label = QLabel(f"⏱️ Tự động đóng sau: {self.remaining_seconds}s")
         self.countdown_label.setAlignment(Qt.AlignCenter)
@@ -87,7 +417,7 @@ class DrowsinessAlertDialog(QDialog):
         """)
 
         # Timeout warning
-        self.timeout_warning = QLabel("⚠️ Nếu không phản hồi → Ghi nhận là BỎ QUA")
+        self.timeout_warning = QLabel("⚠️ Nếu không phản hồi → Ghi nhận là TIMEOUT")
         self.timeout_warning.setAlignment(Qt.AlignCenter)
         self.timeout_warning.setFont(QFont('Arial', 9))
         self.timeout_warning.setStyleSheet("""
@@ -158,6 +488,7 @@ class DrowsinessAlertDialog(QDialog):
         layout.addWidget(warning_label)
         layout.addWidget(title_label)
         layout.addWidget(message_label)
+        layout.addWidget(self.audio_status_label)
         layout.addWidget(self.countdown_label)
         layout.addWidget(self.timeout_warning)
         layout.addWidget(self.sound_label)
@@ -252,19 +583,22 @@ class DrowsinessAlertDialog(QDialog):
         """Xác nhận và dừng âm thanh"""
         self.is_timeout = False  # User chủ động xác nhận
         self.stop_sound()
+        self.stop_audio_detection()
         self.accept()
 
     def reject_and_stop_sound(self):
         """Từ chối và dừng âm thanh"""
         self.is_timeout = False  # User chủ động từ chối
         self.stop_sound()
+        self.stop_audio_detection()
         self.reject()
 
     def auto_reject(self):
-        """Tự động từ chối khi timeout - ĐÁnh dấu là TIMEOUT"""
-        print("⏱️ Timeout 30s - Tự động ghi nhận là BỎ QUA")
-        self.is_timeout = True  # ĐÁnh dấu là timeout
+        """Tự động từ chối khi dialog timeout"""
+        print("⏱️ Dialog Timeout - Tự động ghi nhận là TIMEOUT")
+        self.is_timeout = True  # Đánh dấu là timeout
         self.stop_sound()
+        self.stop_audio_detection()
         self.reject()
 
     def stop_sound(self):
@@ -283,29 +617,145 @@ class DrowsinessAlertDialog(QDialog):
         except:
             pass
 
+    def stop_audio_detection(self):
+        """Dừng audio detection"""
+        if self.audio_worker and self.audio_worker.isRunning():
+            self.audio_worker.stop()
+            self.audio_worker.wait(1000)  # Wait up to 1 second
+
     def closeEvent(self, event):
         """Xử lý khi đóng dialog"""
         self.stop_sound()
+        self.stop_audio_detection()
         event.accept()
 
 
 class RestAlertDialog(QDialog):
-    """Dialog cảnh báo nghỉ ngơi"""
+    """Dialog cảnh báo nghỉ ngơi
 
-    def __init__(self, parent=None):
+    Tích hợp audio detection:
+    - Audio label 1 (2 lần liên tiếp) → accept (dừng lại nghỉ ngơi)
+    - Audio label 0 (2 lần liên tiếp) → reject (tiếp tục - nguy hiểm)
+    - Audio timeout → đánh dấu is_timeout = True và reject
+    """
+
+    def __init__(self, parent=None, enable_audio_detection=True):
         super().__init__(parent)
         self.setWindowTitle("🚨 CẢNH BÁO NGHIÊM TRỌNG")
         self.setModal(True)
-        self.setFixedSize(550, 400)
+        self.setFixedSize(550, 450)
 
         # Sound manager
         self.sound_manager = None
         self.sound_started = False
 
+        # Flag để phân biệt timeout vs user action
+        self.is_timeout = False
+
+        # Audio detection
+        self.enable_audio_detection = enable_audio_detection and AUDIO_DETECTION_AVAILABLE
+        self.audio_worker = None
+        self.audio_result_received = False
+
         self.init_ui()
 
         # Phát âm thanh sau khi UI sẵn sàng
         QTimer.singleShot(100, self.start_sound)
+
+        # Bắt đầu audio detection
+        if self.enable_audio_detection:
+            QTimer.singleShot(200, self.start_audio_detection)
+
+    def start_audio_detection(self):
+        """Bắt đầu audio detection"""
+        model = get_audio_model()
+        if model is None:
+            print("⚠️ Audio model not available, using button-only mode")
+            self.audio_status_label.setText("🔇 Điều khiển giọng nói không khả dụng")
+            self.audio_status_label.setStyleSheet("""
+                QLabel {
+                    color: #6c757d;
+                    font-style: italic;
+                    background-color: #e9ecef;
+                    padding: 8px;
+                    border-radius: 5px;
+                }
+            """)
+            return
+
+        self.audio_worker = AudioDetectionWorker(
+            model=model,
+            timeout=30,  # Timeout cho rest dialog
+            chunk_duration=2.0,
+            overlap=0.75
+        )
+        self.audio_worker.detection_result.connect(self.on_audio_result)
+        self.audio_worker.prediction_update.connect(self.on_audio_prediction)
+        self.audio_worker.start()
+
+    def on_audio_result(self, result):
+        """Xử lý kết quả từ audio detection"""
+        if self.audio_result_received:
+            return
+
+        self.audio_result_received = True
+
+        if result is True:
+            # Audio detected "yes" (label 1) → accept (will rest)
+            print("🎤 Audio: Phát hiện XÁC NHẬN nghỉ ngơi → Đóng dialog")
+            self.is_timeout = False
+            self.accept_and_stop_sound()
+
+        elif result is False:
+            # Audio detected "no" (label 0) → reject (will continue - dangerous)
+            print("🎤 Audio: Phát hiện TIẾP TỤC lái xe → Đóng dialog")
+            self.is_timeout = False
+            self.reject_and_stop_sound()
+
+        else:
+            # Audio timeout → đánh dấu timeout và reject
+            print("🎤 Audio: Timeout - Không phát hiện được xác nhận → Ghi nhận TIMEOUT")
+            self.audio_status_label.setText("⏱️ TIMEOUT - Không nhận được phản hồi giọng nói")
+            self.audio_status_label.setStyleSheet("""
+                QLabel {
+                    color: #e74c3c;
+                    font-weight: bold;
+                    background-color: #f8d7da;
+                    padding: 8px;
+                    border-radius: 5px;
+                    border: 1px solid #e74c3c;
+                }
+            """)
+            self.is_timeout = True  # Đánh dấu là TIMEOUT
+            self.stop_sound()
+            self.stop_audio_detection()
+            self.reject()
+
+    def on_audio_prediction(self, label, confidence, elapsed):
+        """Cập nhật UI khi có prediction mới"""
+        if label == 1:
+            label_text = "Đồng ý nghỉ"
+            color = "#27ae60"
+        elif label == 0:
+            label_text = "Tiếp tục"
+            color = "#e74c3c"
+        else:
+            label_text = f"Khác ({label})"
+            color = "#6c757d"
+
+        self.audio_status_label.setText(
+            f"🎤 [{elapsed:.1f}s] Đang phân tích: {label_text} ({confidence:.1%})"
+        )
+        self.audio_status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                font-weight: bold;
+                background-color: #e3f2fd;
+                padding: 8px;
+                border-radius: 5px;
+                border: 1px solid #90caf9;
+            }}
+        """)
 
     def start_sound(self):
         """Bắt đầu phát âm thanh"""
@@ -358,6 +808,20 @@ class RestAlertDialog(QDialog):
                 border: 2px solid #ffc107;
                 border-radius: 8px;
                 padding: 15px;
+            }
+        """)
+
+        # Audio status label
+        self.audio_status_label = QLabel("🎤 Đang khởi tạo nhận diện giọng nói...")
+        self.audio_status_label.setAlignment(Qt.AlignCenter)
+        self.audio_status_label.setFont(QFont('Arial', 10, QFont.Bold))
+        self.audio_status_label.setStyleSheet("""
+            QLabel {
+                color: #0066cc;
+                background-color: #e3f2fd;
+                padding: 8px;
+                border-radius: 5px;
+                border: 1px solid #90caf9;
             }
         """)
 
@@ -428,6 +892,7 @@ class RestAlertDialog(QDialog):
         layout.addSpacing(5)
         layout.addWidget(message_label)
         layout.addSpacing(5)
+        layout.addWidget(self.audio_status_label)
         layout.addWidget(self.sound_label)
         layout.addStretch()
         layout.addLayout(button_layout)
@@ -488,12 +953,16 @@ class RestAlertDialog(QDialog):
 
     def accept_and_stop_sound(self):
         """Xác nhận và dừng âm thanh"""
+        self.is_timeout = False
         self.stop_sound()
+        self.stop_audio_detection()
         self.accept()
 
     def reject_and_stop_sound(self):
         """Từ chối và dừng âm thanh"""
+        self.is_timeout = False
         self.stop_sound()
+        self.stop_audio_detection()
         self.reject()
 
     def stop_sound(self):
@@ -511,7 +980,14 @@ class RestAlertDialog(QDialog):
         except:
             pass
 
+    def stop_audio_detection(self):
+        """Dừng audio detection"""
+        if self.audio_worker and self.audio_worker.isRunning():
+            self.audio_worker.stop()
+            self.audio_worker.wait(1000)
+
     def closeEvent(self, event):
         """Xử lý khi đóng dialog"""
         self.stop_sound()
+        self.stop_audio_detection()
         event.accept()
