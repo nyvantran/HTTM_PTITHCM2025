@@ -202,6 +202,7 @@ class LoginView(QWidget):
     
     def process_after_login(self, user_info):
         print(user_info)
+        # if, thời gian hiện tại...
         threadTraining(user_info["id"])
         return True
     

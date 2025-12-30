@@ -12,3 +12,4 @@ app.db
 /tmp_dataset
 /runs
 *.pt
+/assets
