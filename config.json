@@ -3,7 +3,7 @@
     "audio_alert": "assets/alert.mp3"
   },
   "drowsy_image_path": "drowsy_images",
-  "model_path": "core/best.pt",
+  "model_path": "model",
   "camera": {
     "source": 0,
     "frame_width": 640,
