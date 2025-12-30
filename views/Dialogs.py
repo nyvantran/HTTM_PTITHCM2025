@@ -159,12 +159,12 @@ class AudioDetectionWorker(QThread):
                                 print("✓ Phát hiện 2 lần liên tiếp: BUỒN NGỦ")
                                 break
                             last_prediction_label = 1
-                        elif label == 0:  # Tỉnh táo
-                            if last_prediction_label == 0:
-                                result = False  # 2 consecutive "alert" = confirm alert
-                                print("✓ Phát hiện 2 lần liên tiếp: TỈNH TÁO")
-                                break
-                            last_prediction_label = 0
+                        # elif label == 0:  # Tỉnh táo
+                        #     if last_prediction_label == 0:
+                        #         result = False  # 2 consecutive "alert" = confirm alert
+                        #         print("✓ Phát hiện 2 lần liên tiếp: TỈNH TÁO")
+                        #         break
+                        #     last_prediction_label = 0
                         else:
                             # Các label khác (2, 3, ...) không xử lý, reset
                             last_prediction_label = -1
@@ -234,7 +234,7 @@ class DrowsinessAlertDialog(QDialog):
         self.sound_started = False
 
         # Countdown timer
-        self.remaining_seconds = 3  # 30 giây
+        self.remaining_seconds = 9  # s
 
         # Flag để phân biệt timeout vs user action
         self.is_timeout = False
@@ -282,7 +282,7 @@ class DrowsinessAlertDialog(QDialog):
 
         self.audio_worker = AudioDetectionWorker(
             model=model,
-            timeout=25,  # Timeout ngắn hơn dialog timeout
+            timeout=30,  # Timeout ngắn hơn dialog timeout
             chunk_duration=2.0,
             overlap=0.75
         )
@@ -305,11 +305,11 @@ class DrowsinessAlertDialog(QDialog):
             self.is_timeout = False
             self.accept_and_stop_sound()
 
-        elif result is False:
-            # Audio detected alert (label 0, 2 consecutive) → REJECT
-            print("🎤 Audio: Phát hiện TỈNH TÁO → Đóng dialog")
-            self.is_timeout = False
-            self.reject_and_stop_sound()
+        # elif result is False:
+        #     # Audio detected alert (label 0, 2 consecutive) → REJECT
+        #     print("🎤 Audio: Phát hiện TỈNH TÁO → Đóng dialog")
+        #     self.is_timeout = False
+        #     self.reject_and_stop_sound()
 
         else:
             # Audio timeout → đánh dấu timeout và reject
